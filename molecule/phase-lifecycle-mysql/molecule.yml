@@ -1,0 +1,45 @@
+---
+role_name_check: 1
+dependency:
+  name: "galaxy"
+  options:
+    requirements-file: "molecule/common/requirements.yml"
+driver:
+  name: "docker"
+platforms:
+  - name: "instance"
+    image: "${MOLECULE_IMAGE:-geerlingguy/docker-ubuntu2404-ansible@sha256:68af87df907605679a3fd572d0eb8b13330b160a3aa89fe9d89e31a4d8ef6ca0}"
+    pre_build_image: true
+    privileged: true
+    cgroupns_mode: "host"
+    volumes:
+      - "/sys/fs/cgroup:/sys/fs/cgroup:rw"
+provisioner:
+  name: "ansible"
+  env:
+    ANSIBLE_HOME: "${MOLECULE_ANSIBLE_HOME:-../../.ansible}"
+    ANSIBLE_CALLBACK_PLUGINS: "${MOLECULE_CALLBACK_PLUGINS:-molecule/common/callback_plugins}"
+    ANSIBLE_COLLECTIONS_PATH: "${MOLECULE_COLLECTIONS_PATH:-../../.ansible/collections}:/usr/share/ansible/collections"
+    ANSIBLE_COLLECTIONS_SCAN_SYS_PATH: "false"
+    ARCHIVEMATICA_UPGRADE_TASK_COVERAGE_CONFIG: "${MOLECULE_COVERAGE_CONFIG:-molecule/phase-coverage.yml}"
+    ARCHIVEMATICA_UPGRADE_TASK_COVERAGE_FILE: "${MOLECULE_COVERAGE_FILE:-../../.ansible/molecule/phase-lifecycle-mysql-task-coverage.jsonl}"
+  config_options:
+    defaults:
+      callbacks_enabled: "common_task_coverage"
+      remote_tmp: "/tmp/.ansible/tmp"
+    privilege_escalation:
+      become: false
+scenario:
+  test_sequence:
+    - "dependency"
+    - "cleanup"
+    - "destroy"
+    - "syntax"
+    - "create"
+    - "prepare"
+    - "converge"
+    - "verify"
+    - "cleanup"
+    - "destroy"
+verifier:
+  name: "ansible"

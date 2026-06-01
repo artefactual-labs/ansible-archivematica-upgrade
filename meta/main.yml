@@ -1,0 +1,20 @@
+---
+galaxy_info:
+  author: Artefactual Systems
+  description: Manage resumable Archivematica application upgrades
+  company: Artefactual Systems Inc.
+  license: AGPL-3.0-or-later
+  min_ansible_version: "2.15"
+  namespace: artefactual_labs
+  role_name: archivematica_upgrade
+  platforms:
+    - name: EL
+      versions:
+        - "8"
+        - "9"
+    - name: Ubuntu
+      versions:
+        - "jammy"
+        - "noble"
+
+dependencies: []

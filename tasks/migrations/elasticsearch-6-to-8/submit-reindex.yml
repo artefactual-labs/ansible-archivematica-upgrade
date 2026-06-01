@@ -1,0 +1,50 @@
+---
+- name: "Submit Elasticsearch remote reindex for {{ _archivematica_upgrade_reindex_index }}"
+  ansible.builtin.uri:
+    url: "{{ _archivematica_upgrade_destination_es_url }}/_reindex?wait_for_completion=false"
+    method: "POST"
+    body_format: "json"
+    body:
+      source:
+        remote:
+          host: "{{ _archivematica_upgrade_es6_url }}"
+          socket_timeout: "{{ archivematica_upgrade_reindex_timeout }}s"
+          connect_timeout: "60s"
+        index: "{{ _archivematica_upgrade_reindex_index }}"
+        size: "{{ archivematica_upgrade_reindex_batch_size | int }}"
+      dest:
+        index: "{{ _archivematica_upgrade_reindex_index }}"
+        op_type: "create"
+    status_code: 200
+    return_content: true
+    timeout: 60
+  register: "_archivematica_upgrade_reindex_submission"
+
+- name: "Require an Elasticsearch remote-reindex task ID for {{ _archivematica_upgrade_reindex_index }}"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_reindex_submission.json.task is defined
+      - _archivematica_upgrade_reindex_submission.json.task is string
+      - _archivematica_upgrade_reindex_submission.json.task | length > 0
+    fail_msg: >-
+      Elasticsearch did not return a remote-reindex task ID for
+      {{ _archivematica_upgrade_reindex_index }}.
+
+- name: "Collect Elasticsearch remote-reindex task ID for {{ _archivematica_upgrade_reindex_index }}"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_reindex_task_ids: >-
+      {{
+        _archivematica_upgrade_reindex_task_ids |
+        combine({
+          _archivematica_upgrade_reindex_index:
+          _archivematica_upgrade_reindex_submission.json.task
+        })
+      }}
+
+- name: "Persist Elasticsearch remote-reindex task IDs"
+  ansible.builtin.copy:
+    content: "{{ _archivematica_upgrade_reindex_task_ids | to_nice_json }}\n"
+    dest: "{{ _archivematica_upgrade_reindex_task_ids_file }}"
+    owner: "root"
+    group: "root"
+    mode: "0640"

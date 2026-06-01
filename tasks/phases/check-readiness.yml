@@ -1,0 +1,251 @@
+---
+- name: "Load common Archivematica upgrade values"
+  ansible.builtin.include_tasks: "common/load-context.yml"
+
+- name: "Require the AM 1.18 installer configuration and snapshot confirmation"
+  ansible.builtin.assert:
+    that:
+      - archivematica_upgrade_snapshot_confirmed | default(false) | bool
+      - >-
+        (archivematica_src_role_name | default('artefactual.archivematica-src'))
+        in _archivematica_upgrade_effective_src_role_names
+      - >-
+        (archivematica_src_am_version | default(''))
+        is match(_archivematica_upgrade_effective_am_version_pattern)
+      - >-
+        (archivematica_src_ss_version | default(''))
+        is match(_archivematica_upgrade_effective_ss_version_pattern)
+      - archivematica_src_search_enabled | default(true) | bool
+      - ansible_distribution in ['Ubuntu', 'Rocky', 'RedHat']
+    fail_msg: >-
+      Confirm a VM or block-storage snapshot with
+      archivematica_upgrade_snapshot_confirmed=true, configure the host with
+      target installer variables for {{ archivematica_upgrade_path }}, use a
+      supported ansible-archivematica-src alias and full search indexing, and
+      use a supported Ubuntu, Rocky, or Red Hat host before upgrading.
+
+- name: "Require an idle Archivematica pipeline"
+  ansible.builtin.include_tasks: "common/require-idle.yml"
+
+- name: "Read local service facts for readiness"
+  ansible.builtin.service_facts:
+
+- name: "Initialize unmanaged common local services"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_unmanaged_common_local_services: []
+
+- name: "Collect unmanaged common local services"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_unmanaged_common_local_services: >-
+      {{ _archivematica_upgrade_unmanaged_common_local_services + [item] }}
+  loop: "{{ archivematica_upgrade_common_local_services }}"
+  when:
+    - item + '.service' in ansible_facts.services
+    - item not in _archivematica_upgrade_application_services
+    - item not in archivematica_upgrade_ignored_common_local_services
+
+- name: "Require managed common local services"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_unmanaged_common_local_services | length == 0
+    fail_msg: >-
+      Common local services {{
+        _archivematica_upgrade_unmanaged_common_local_services | join(', ')
+      }} are installed but are not managed by this upgrade. Review
+      archivematica_upgrade_application_services and include local units that
+      can submit work, expose the app, or depend on Elasticsearch during
+      cutover, or list intentionally external units in
+      archivematica_upgrade_ignored_common_local_services.
+
+- name: "Count database tables that do not use utf8mb4"
+  ansible.builtin.command:
+    argv: >-
+      {{
+        ['mysql'] +
+        _archivematica_upgrade_mysql_client_args +
+        [
+          '--batch',
+          '--skip-column-names',
+          '--execute',
+          "SELECT COUNT(*) " ~
+          "FROM information_schema.TABLES AS t " ~
+          "JOIN information_schema.COLLATION_CHARACTER_SET_APPLICABILITY AS c " ~
+          "ON c.COLLATION_NAME = t.TABLE_COLLATION " ~
+          "WHERE t.TABLE_TYPE = 'BASE TABLE' " ~
+          "AND t.TABLE_SCHEMA IN ('" ~ archivematica_src_am_db_name ~ "', '" ~
+          archivematica_src_ss_db_name ~ "') " ~
+          "AND c.CHARACTER_SET_NAME != 'utf8mb4';"
+        ]
+      }}
+  register: "_archivematica_upgrade_non_utf8mb4_tables"
+  changed_when: false
+
+- name: "Count database defaults that do not use utf8mb4"
+  ansible.builtin.command:
+    argv: >-
+      {{
+        ['mysql'] +
+        _archivematica_upgrade_mysql_client_args +
+        [
+          '--batch',
+          '--skip-column-names',
+          '--execute',
+          "SELECT COUNT(*) " ~
+          "FROM information_schema.SCHEMATA " ~
+          "WHERE SCHEMA_NAME IN ('" ~ archivematica_src_am_db_name ~ "', '" ~
+          archivematica_src_ss_db_name ~ "') " ~
+          "AND DEFAULT_CHARACTER_SET_NAME != 'utf8mb4';"
+        ]
+      }}
+  register: "_archivematica_upgrade_non_utf8mb4_schemata"
+  changed_when: false
+
+- name: "Count database columns that do not use utf8mb4"
+  ansible.builtin.command:
+    argv: >-
+      {{
+        ['mysql'] +
+        _archivematica_upgrade_mysql_client_args +
+        [
+          '--batch',
+          '--skip-column-names',
+          '--execute',
+          "SELECT COUNT(*) " ~
+          "FROM information_schema.COLUMNS " ~
+          "WHERE TABLE_SCHEMA IN ('" ~ archivematica_src_am_db_name ~ "', '" ~
+          archivematica_src_ss_db_name ~ "') " ~
+          "AND CHARACTER_SET_NAME IS NOT NULL " ~
+          "AND CHARACTER_SET_NAME != 'utf8mb4';"
+        ]
+      }}
+  register: "_archivematica_upgrade_non_utf8mb4_columns"
+  changed_when: false
+
+- name: "Require utf8mb4 application databases"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_non_utf8mb4_tables.stdout | int == 0
+      - _archivematica_upgrade_non_utf8mb4_schemata.stdout | int == 0
+      - _archivematica_upgrade_non_utf8mb4_columns.stdout | int == 0
+    fail_msg: >-
+      Archivematica or Storage Service tables still use a character set other
+      than utf8mb4, or their database defaults or columns do. Convert the
+      database defaults, tables, or columns by following the AM 1.18 database
+      collation migration guidance before running prepare.
+
+- name: "Check upgrade storage root"
+  ansible.builtin.stat:
+    path: "{{ _archivematica_upgrade_root }}"
+    follow: true
+  register: "_archivematica_upgrade_storage_root"
+
+- name: "Set upgrade storage filesystem path"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_storage_filesystem_path: >-
+      {{
+        _archivematica_upgrade_root
+        if _archivematica_upgrade_storage_root.stat.isdir | default(false)
+        else (_archivematica_upgrade_root | dirname)
+      }}
+
+- name: "Check upgrade storage filesystem path"
+  ansible.builtin.stat:
+    path: "{{ _archivematica_upgrade_storage_filesystem_path }}"
+    follow: true
+  register: "_archivematica_upgrade_storage_filesystem"
+
+- name: "Require an existing upgrade storage filesystem path"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_storage_filesystem.stat.isdir | default(false)
+    fail_msg: >-
+      The filesystem path for {{ _archivematica_upgrade_root }} does not exist.
+      Set archivematica_upgrade_root to an existing directory or to a path whose
+      parent directory exists on a filesystem with enough free space.
+
+- name: "Measure Elasticsearch filesystem backup directories"
+  ansible.builtin.command:
+    argv:
+      - "du"
+      - "--summarize"
+      - "--bytes"
+      - "{{ item }}"
+  loop:
+    - "{{ _archivematica_upgrade_es_config_dir }}"
+    - "{{ _archivematica_upgrade_es_data_dir }}"
+    - "{{ _archivematica_upgrade_es_log_dir }}"
+  register: "_archivematica_upgrade_es_backup_sizes"
+  changed_when: false
+
+- name: "Measure available generic upgrade storage"
+  ansible.builtin.shell: >-
+    set -o pipefail &&
+    df --output=avail --block-size=1 '{{ _archivematica_upgrade_storage_filesystem_path }}' |
+    tail -n 1
+  args:
+    executable: "/bin/bash"
+  register: "_archivematica_upgrade_generic_available_bytes"
+  changed_when: false
+
+- name: "Initialize required Elasticsearch backup storage"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_es_backup_required_bytes: "{{ archivematica_upgrade_disk_extra_bytes | int }}"
+
+- name: "Collect required Elasticsearch backup storage"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_es_backup_required_bytes: >-
+      {{
+        _archivematica_upgrade_es_backup_required_bytes | int +
+        (item.stdout.split()[0] | int)
+      }}
+  loop: "{{ _archivematica_upgrade_es_backup_sizes.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: "Require storage for Elasticsearch filesystem backups"
+  ansible.builtin.assert:
+    that:
+      - >-
+        _archivematica_upgrade_generic_available_bytes.stdout |
+        trim |
+        int >= _archivematica_upgrade_es_backup_required_bytes | int
+    fail_msg: >-
+      Upgrade storage has {{
+        _archivematica_upgrade_generic_available_bytes.stdout | trim
+      }} bytes free but requires at least
+      {{ _archivematica_upgrade_es_backup_required_bytes }} bytes for
+      Elasticsearch filesystem backups. Set archivematica_upgrade_root to a
+      larger filesystem or review the sizing overrides.
+
+- name: "Run check-readiness hooks for active migrations"
+  ansible.builtin.include_tasks: "common/run-migration-hooks.yml"
+  vars:
+    _archivematica_upgrade_hook_phase: "check-readiness"
+
+- name: "Create traversable upgrade directories"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: "directory"
+    owner: "root"
+    group: "root"
+    mode: "0711"
+  loop:
+    - "{{ _archivematica_upgrade_root }}"
+    - "{{ _archivematica_upgrade_path }}"
+
+- name: "Create readiness-check checkpoint directory"
+  ansible.builtin.file:
+    path: "{{ _archivematica_upgrade_checkpoint_dir }}"
+    state: "directory"
+    owner: "root"
+    group: "root"
+    mode: "0750"
+
+- name: "Record completed readiness check"
+  ansible.builtin.copy:
+    content: "{{ ansible_date_time.iso8601 }}\n"
+    dest: "{{ _archivematica_upgrade_checkpoint_dir }}/check-readiness"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+    force: false

@@ -1,0 +1,63 @@
+---
+_phase_coverage_fixture_root: "/tmp/archivematica-upgrade-phase"
+_phase_coverage_fixture_bin: "{{ _phase_coverage_fixture_root }}/bin"
+_phase_coverage_role_path: "{{ playbook_dir }}/../../.."
+_phase_coverage_http_url: "http://127.0.0.1:18080"
+_phase_coverage_es6_url: "http://127.0.0.1:9200"
+_phase_coverage_es8_url: "http://127.0.0.1:18080/es8"
+_phase_coverage_es6_temp_url: "http://127.0.0.1:9500"
+_phase_coverage_es6_version: "6.8.23"
+_phase_coverage_es6_archive: "{{ _phase_coverage_fixture_root }}/elasticsearch-6.8.23.tar.gz"
+_phase_coverage_es6_archive_url: "file://{{ _phase_coverage_es6_archive }}"
+_phase_coverage_es6_archive_checksum_file: "{{ _phase_coverage_fixture_root }}/elasticsearch-6.8.23.sha256"
+_phase_coverage_processing_config_dir: "{{ _phase_coverage_fixture_root }}/processingMCPConfigs"
+_phase_coverage_storage_db: "/var/archivematica/storage-service/storage.db"
+_phase_coverage_apt_keyring: "{{ _phase_coverage_fixture_root }}/keyrings/archivematica-archive-keyring.gpg"
+_phase_coverage_coverage_file: "{{ lookup('env', 'MOLECULE_COVERAGE_FILE') }}"
+
+archivematica_upgrade_id: "phase-coverage"
+archivematica_upgrade_root: "{{ _phase_coverage_fixture_root }}/upgrade-root"
+archivematica_upgrade_snapshot_confirmed: true
+archivematica_upgrade_cleanup_confirmed: true
+archivematica_upgrade_restore_confirmed: true
+archivematica_upgrade_remove_rollback_data_confirmed: false
+archivematica_upgrade_source_es_url: "{{ _phase_coverage_es6_url }}"
+archivematica_upgrade_destination_es_url: "{{ _phase_coverage_es8_url }}"
+archivematica_upgrade_es_data_dir: "{{ _phase_coverage_fixture_root }}/elasticsearch-data"
+archivematica_upgrade_es6_user: "molecule-es6"
+archivematica_upgrade_es6_archive_url: "{{ _phase_coverage_es6_archive_url }}"
+archivematica_upgrade_es6_checksum: ""
+archivematica_upgrade_java_11_home: "/usr/lib/jvm/java-11-openjdk-amd64"
+archivematica_upgrade_archivematica_apt_key_url: "{{ _phase_coverage_http_url }}/GPG-KEY-archivematica"
+archivematica_upgrade_archivematica_apt_keyring_path: "{{ _phase_coverage_apt_keyring }}"
+archivematica_upgrade_mysqldump_timeout: 30
+archivematica_upgrade_es_data_timeout: 30
+archivematica_upgrade_reindex_timeout: 5
+archivematica_upgrade_disk_extra_bytes: 0
+archivematica_upgrade_processing_config_dir: "{{ _phase_coverage_processing_config_dir }}"
+archivematica_upgrade_application_services:
+  - "archivematica-storage-service"
+  - "archivematica-dashboard"
+  - "archivematica-mcp-server"
+  - "archivematica-mcp-client"
+archivematica_upgrade_common_local_services: []
+archivematica_upgrade_ignored_common_local_services: []
+archivematica_upgrade_am_api_url: "{{ _phase_coverage_http_url }}"
+archivematica_upgrade_am_api_user: "molecule"
+archivematica_upgrade_am_api_key: "molecule"
+archivematica_upgrade_am_search_validation_url: "{{ _phase_coverage_http_url }}/api/search"
+archivematica_upgrade_ss_api_url: "{{ _phase_coverage_http_url }}"
+archivematica_upgrade_ss_api_user: "molecule"
+archivematica_upgrade_ss_api_key: "molecule"
+archivematica_upgrade_validate_certs: false
+
+archivematica_src_role_name: "artefactual.archivematica-src"
+archivematica_src_am_version: "v1.18.0"
+archivematica_src_ss_version: "v0.24.0"
+archivematica_src_search_enabled: true
+archivematica_src_ssl: false
+archivematica_src_am_db_name: "MCP"
+archivematica_src_ss_db_name: "SS"
+archivematica_src_ss_db_mysql_enabled: true
+archivematica_src_am_mcpclient_instances: 1
+elasticsearch_version: "8.15.0"

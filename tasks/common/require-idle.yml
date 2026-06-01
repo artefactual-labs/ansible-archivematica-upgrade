@@ -1,0 +1,60 @@
+---
+# Job.STATUS_AWAITING_DECISION = 1; Job.STATUS_EXECUTING_COMMANDS = 3.
+- name: "Count active or waiting MCP jobs"
+  ansible.builtin.command:
+    argv: >-
+      {{
+        ['mysql'] +
+        _archivematica_upgrade_mysql_client_args +
+        [
+          '--batch',
+          '--skip-column-names',
+          archivematica_src_am_db_name,
+          '--execute',
+          'SELECT COUNT(*) FROM Jobs WHERE currentStep IN (1, 3);'
+        ]
+      }}
+  register: "_archivematica_upgrade_active_jobs"
+  changed_when: false
+
+- name: "Require no active or waiting MCP jobs"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_active_jobs.stdout | int == 0
+    fail_msg: >-
+      Archivematica has {{ _archivematica_upgrade_active_jobs.stdout }} active or waiting
+      MCP jobs. Resolve them before preparing the upgrade.
+
+- name: "Inspect the currently processing directory"
+  ansible.builtin.find:
+    paths: "/var/archivematica/sharedDirectory/currentlyProcessing"
+    file_type: "any"
+    hidden: true
+    recurse: false
+  register: "_archivematica_upgrade_currently_processing"
+
+- name: "Require an empty currently processing directory"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_currently_processing.matched | int == 0
+    fail_msg: >-
+      /var/archivematica/sharedDirectory/currentlyProcessing is not empty.
+      Review its contents manually; this playbook will not delete or move them.
+
+- name: "Inspect watched directories that must be empty"
+  ansible.builtin.find:
+    paths:
+      - "/var/archivematica/sharedDirectory/watchedDirectories/SIPCreation/completedTransfers"
+      - "/var/archivematica/sharedDirectory/watchedDirectories/uploadDIP"
+    file_type: "any"
+    hidden: true
+    recurse: false
+  register: "_archivematica_upgrade_watched_directories"
+
+- name: "Require empty watched directories"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_watched_directories.matched | int == 0
+    fail_msg: >-
+      Archivematica watched directories still contain queued content. Review
+      their contents manually; this playbook will not delete or move them.

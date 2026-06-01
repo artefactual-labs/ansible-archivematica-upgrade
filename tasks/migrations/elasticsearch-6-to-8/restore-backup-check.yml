@@ -1,0 +1,8 @@
+---
+- name: "Require Elasticsearch restore backup manifest metadata"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_restore_backup_manifest.source_es_version | default('') is match('^6[.]')
+    fail_msg: >-
+      The backup manifest is missing the Elasticsearch 6 source version needed
+      by this restore-backup-check phase.

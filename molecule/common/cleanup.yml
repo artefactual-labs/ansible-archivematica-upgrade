@@ -1,0 +1,21 @@
+---
+- name: "Clean up common task test host"
+  hosts: "all"
+  gather_facts: false
+  ignore_unreachable: true
+  vars:
+    _molecule_common_fixture_root: "/tmp/archivematica-upgrade-molecule"
+  tasks:
+    - name: "Stop HTTP API fixture"
+      ansible.builtin.command:
+        argv:
+          - "pkill"
+          - "-f"
+          - "{{ _molecule_common_fixture_root }}/fixture-http.py"
+      changed_when: false
+      failed_when: false
+
+    - name: "Remove common task fixture root"
+      ansible.builtin.file:
+        path: "{{ _molecule_common_fixture_root }}"
+        state: "absent"

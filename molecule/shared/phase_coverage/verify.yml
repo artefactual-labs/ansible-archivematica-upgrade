@@ -1,0 +1,16 @@
+---
+- name: "Verify phase coverage scenario marker"
+  hosts: "all"
+  gather_facts: false
+  vars_files:
+    - "vars.yml"
+  tasks:
+    - name: "Require phase coverage scenario completion marker"
+      ansible.builtin.stat:
+        path: "{{ _phase_coverage_fixture_root }}/scenario-complete"
+      register: "_phase_coverage_complete"
+
+    - name: "Assert phase coverage scenario completed"
+      ansible.builtin.assert:
+        that:
+          - _phase_coverage_complete.stat.exists

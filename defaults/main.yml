@@ -1,0 +1,54 @@
+---
+archivematica_upgrade_path: "1.17-to-1.18"
+archivematica_upgrade_phase: "check-readiness"
+archivematica_upgrade_id: ""
+archivematica_upgrade_snapshot_confirmed: false
+archivematica_upgrade_cleanup_confirmed: false
+archivematica_upgrade_restore_confirmed: false
+
+archivematica_upgrade_root: "/var/lib/archivematica-upgrades"
+archivematica_upgrade_es6_port: 9500
+archivematica_upgrade_es8_url: "http://127.0.0.1:9200"
+archivematica_upgrade_source_es_url: "{{ archivematica_upgrade_es8_url }}"
+archivematica_upgrade_destination_es_url: "{{ archivematica_upgrade_es8_url }}"
+archivematica_upgrade_es_data_dir: "{{ elasticsearch_data_dir | default('/var/lib/elasticsearch') }}"
+archivematica_upgrade_es6_user: ""
+archivematica_upgrade_es6_archive_url: ""
+archivematica_upgrade_es6_checksum: ""
+archivematica_upgrade_es6_java_opts: "-Xms2g -Xmx2g"
+archivematica_upgrade_java_11_home: ""
+archivematica_upgrade_archivematica_apt_key_url: "https://packages.archivematica.org/GPG-KEY-archivematica"
+archivematica_upgrade_archivematica_apt_keyring_path: "/usr/share/keyrings/archivematica-archive-keyring.gpg"
+archivematica_upgrade_mysqldump_timeout: 7200
+archivematica_upgrade_es_data_timeout: 7200
+archivematica_upgrade_reindex_timeout: 3600
+archivematica_upgrade_reindex_batch_size: 1000
+archivematica_upgrade_disk_multiplier: 3
+archivematica_upgrade_disk_extra_bytes: 1073741824
+archivematica_upgrade_mysql_defaults_extra_file: ""
+archivematica_upgrade_mysql_client_args: []
+archivematica_upgrade_archivematica_user: "archivematica"
+archivematica_upgrade_archivematica_group: "{{ archivematica_upgrade_archivematica_user }}"
+archivematica_upgrade_processing_config_dir: "/var/archivematica/sharedDirectory/sharedMicroServiceTasksConfigs/processingMCPConfigs"
+archivematica_upgrade_src_role_names: []
+archivematica_upgrade_am_version_pattern: ""
+archivematica_upgrade_ss_version_pattern: ""
+archivematica_upgrade_application_services:
+  - "archivematica-storage-service"
+  - "archivematica-dashboard"
+  - "archivematica-mcp-server"
+  - "archivematica-mcp-client"
+archivematica_upgrade_common_local_services:
+  - "gearman-job-server"
+  - "nginx"
+archivematica_upgrade_ignored_common_local_services: []
+archivematica_upgrade_remove_rollback_data_confirmed: false
+
+archivematica_upgrade_am_api_url: "{{ archivematica_src_configure_am_site_url | default('http://127.0.0.1') }}"
+archivematica_upgrade_am_api_user: "{{ archivematica_src_configure_am_user | default('') }}"
+archivematica_upgrade_am_api_key: "{{ archivematica_src_configure_am_api_key | default('') }}"
+archivematica_upgrade_am_search_validation_url: ""
+archivematica_upgrade_ss_api_url: "{{ archivematica_src_configure_ss_url | default('http://127.0.0.1:8000') }}"
+archivematica_upgrade_ss_api_user: "{{ archivematica_src_configure_ss_user | default('') }}"
+archivematica_upgrade_ss_api_key: "{{ archivematica_src_configure_ss_api_key | default('') }}"
+archivematica_upgrade_validate_certs: true

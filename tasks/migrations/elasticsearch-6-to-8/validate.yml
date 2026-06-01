@@ -1,0 +1,42 @@
+---
+- name: "Wait for Elasticsearch 8"
+  ansible.builtin.uri:
+    url: "{{ _archivematica_upgrade_destination_es_url }}/_cluster/health?wait_for_status=yellow&timeout=60s"
+    return_content: true
+  register: "_archivematica_upgrade_es8_health"
+  until:
+    - _archivematica_upgrade_es8_health.status == 200
+    - not (_archivematica_upgrade_es8_health.json.timed_out | default(false) | bool)
+  retries: 12
+  delay: 5
+
+- name: "Read Elasticsearch 8 destination index counts"
+  ansible.builtin.uri:
+    url: "{{ _archivematica_upgrade_destination_es_url }}/{{ item }}/_count"
+    status_code:
+      - 200
+      - 404
+    return_content: true
+  loop: "{{ _archivematica_upgrade_indices }}"
+  register: "_archivematica_upgrade_es8_count_responses"
+
+- name: "Initialize Elasticsearch 8 destination index counts"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_es8_index_counts: {}
+
+- name: "Collect Elasticsearch 8 destination index counts"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_es8_index_counts: >-
+      {{
+        _archivematica_upgrade_es8_index_counts |
+        combine({item.item: item.json.count | default(0) | int})
+      }}
+  loop: "{{ _archivematica_upgrade_es8_count_responses.results }}"
+
+- name: "Verify Elasticsearch 8 destination index counts"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_es8_index_counts == _archivematica_upgrade_source_index_counts
+    fail_msg: >-
+      Elasticsearch 8 index counts {{ _archivematica_upgrade_es8_index_counts }} do not
+      match the Elasticsearch 6 source counts {{ _archivematica_upgrade_source_index_counts }}.

@@ -1,0 +1,55 @@
+---
+- name: "Seed prepared state for checkpoint coverage"
+  ansible.builtin.include_tasks: "seed-prepared-state.yml"
+
+- name: "Seed completed phase checkpoints"
+  ansible.builtin.copy:
+    content: "seeded\n"
+    dest: "{{ item }}"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+  loop:
+    - "{{ _archivematica_upgrade_checkpoint_dir }}/check-readiness"
+    - "{{ _archivematica_upgrade_checkpoint_dir }}/prepared"
+    - "{{ _archivematica_upgrade_checkpoint_dir }}/cutover"
+    - "{{ _archivematica_upgrade_checkpoint_dir }}/validated"
+    - "{{ _archivematica_upgrade_checkpoint_dir }}/migrations/elasticsearch-6-to-8/reindexed"
+    - "{{ _archivematica_upgrade_checkpoint_dir }}/migrations/elasticsearch-6-to-8/es6-system-removed"
+
+- name: "Run prepare phase with prepared checkpoint"
+  ansible.builtin.include_tasks: "run-role-phase.yml"
+  vars:
+    _phase_coverage_phase: "prepare"
+
+- name: "Run cutover-before-install with Elasticsearch removal checkpoint"
+  ansible.builtin.include_tasks: "run-role-phase.yml"
+  vars:
+    _phase_coverage_phase: "cutover-before-install"
+
+- name: "Simulate installer handoff before resumed migrate"
+  ansible.builtin.include_tasks: "simulate-installer-handoff.yml"
+
+- name: "Run migrate phase with reindexed checkpoint"
+  ansible.builtin.include_tasks: "run-role-phase.yml"
+  vars:
+    _phase_coverage_phase: "migrate"
+
+- name: "Create retained rollback directories for removal branch"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: "directory"
+    owner: "root"
+    group: "root"
+    mode: "0755"
+  loop:
+    - "{{ _archivematica_upgrade_backup_dir }}"
+    - "{{ _archivematica_upgrade_preserved_es_config_dir }}"
+    - "{{ _archivematica_upgrade_preserved_es_data_dir }}"
+    - "{{ _archivematica_upgrade_preserved_es_log_dir }}"
+
+- name: "Run cleanup phase removing rollback data"
+  ansible.builtin.include_tasks: "run-role-phase.yml"
+  vars:
+    _phase_coverage_phase: "cleanup"
+    archivematica_upgrade_remove_rollback_data_confirmed: true

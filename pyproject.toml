@@ -1,0 +1,47 @@
+[project]
+name = "ansible-archivematica-upgrade"
+version = "0.0.0"
+description = "Development tooling for ansible-archivematica-upgrade"
+requires-python = ">=3.10"
+dependencies = []
+
+[dependency-groups]
+ansible = [
+    "ansible==8.5.0",
+    "jmespath",
+]
+lint = [
+    { include-group = "ansible" },
+    "ansible-lint",
+    "pre-commit",
+    "types-PyYAML",
+]
+molecule = [
+    { include-group = "ansible" },
+    "docker",
+    "molecule==6.0.3",
+    "molecule-plugins[docker]==23.5.3",
+    "requests<2.32",
+]
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "B",
+    "C4",
+    "E",
+    "F",
+    "I",
+    "UP",
+    "W",
+]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+force-single-line = true
+
+[tool.mypy]
+python_version = "3.12"
+strict = true

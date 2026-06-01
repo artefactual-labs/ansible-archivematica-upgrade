@@ -1,0 +1,79 @@
+---
+- name: "Load common Archivematica upgrade values"
+  ansible.builtin.include_tasks: "common/load-context.yml"
+
+- name: "Load prepared Archivematica upgrade state"
+  ansible.builtin.include_tasks: "common/load-state.yml"
+
+- name: "Require explicit cleanup confirmation"
+  ansible.builtin.assert:
+    that:
+      - archivematica_upgrade_cleanup_confirmed | default(false) | bool
+    fail_msg: "Set archivematica_upgrade_cleanup_confirmed=true after completing operator validation."
+
+- name: "Require completed validation"
+  ansible.builtin.stat:
+    path: "{{ _archivematica_upgrade_checkpoint_dir }}/validated"
+  register: "_archivematica_upgrade_validated_checkpoint"
+
+- name: "Fail when validation is incomplete"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_validated_checkpoint.stat.exists
+    fail_msg: "Run the validate phase and complete operator checks before cleanup."
+
+- name: "Run cleanup hooks for active migrations"
+  ansible.builtin.include_tasks: "common/run-migration-hooks.yml"
+  vars:
+    _archivematica_upgrade_hook_phase: "cleanup"
+
+- name: "Record completed cleanup"
+  ansible.builtin.copy:
+    content: "{{ ansible_date_time.iso8601 }}\n"
+    dest: "{{ _archivematica_upgrade_checkpoint_dir }}/cleaned-up"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+    force: false
+
+- name: "Inspect retained Elasticsearch rollback directories"
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ _archivematica_upgrade_preserved_es_config_dir }}"
+    - "{{ _archivematica_upgrade_preserved_es_data_dir }}"
+    - "{{ _archivematica_upgrade_preserved_es_log_dir }}"
+  register: "_archivematica_upgrade_retained_es_directories"
+
+- name: "Collect retained Elasticsearch rollback directories"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_retained_es_directory_paths: >-
+      {{
+        _archivematica_upgrade_retained_es_directories.results |
+        selectattr('stat.exists') |
+        map(attribute='item') |
+        list
+      }}
+
+- name: "Report retained rollback data"
+  ansible.builtin.debug:
+    msg:
+      - "Rollback backups remain under {{ _archivematica_upgrade_backup_dir }}."
+      - >-
+        Preserved Elasticsearch directories found:
+        {{
+          _archivematica_upgrade_retained_es_directory_paths | join(', ')
+          if _archivematica_upgrade_retained_es_directory_paths | length > 0
+          else 'none'
+        }}.
+
+- name: "Remove rollback data after explicit confirmation"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: "absent"
+  loop:
+    - "{{ _archivematica_upgrade_backup_dir }}"
+    - "{{ _archivematica_upgrade_preserved_es_config_dir }}"
+    - "{{ _archivematica_upgrade_preserved_es_data_dir }}"
+    - "{{ _archivematica_upgrade_preserved_es_log_dir }}"
+  when: archivematica_upgrade_remove_rollback_data_confirmed | default(false) | bool

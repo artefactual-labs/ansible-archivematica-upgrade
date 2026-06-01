@@ -1,0 +1,11 @@
+---
+_archivematica_upgrade_supported_paths:
+  "1.17-to-1.18":
+    target:
+      src_role_names:
+        - "artefactual.archivematica-src"
+        - "artefactual.archivematica-src-1.18"
+      archivematica_version_pattern: '^(v1\.18\..*|stable/1\.18\.x)$'
+      storage_service_version_pattern: '^(v0\.24\..*|stable/0\.24\.x)$'
+    migrations:
+      - "elasticsearch-6-to-8"

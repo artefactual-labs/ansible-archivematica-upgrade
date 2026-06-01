@@ -1,0 +1,30 @@
+---
+# ansible-lint: skip_file
+# Aggregated coverage contract for phase entrypoints and migration hooks. Each
+# scenario records one branch of the lifecycle; the Make target verifies the
+# combined JSONL events.
+record_paths:
+  - "tasks/phases"
+  - "tasks/migrations/elasticsearch-6-to-8"
+scopes:
+  - "tasks/phases"
+  - "tasks/migrations/elasticsearch-6-to-8"
+required_events:
+  - path: "tasks/phases/prepare.yml"
+    name: "Require snapshot confirmation before preparing the upgrade"
+    status: "failed/rescued"
+  - path: "tasks/phases/cutover-before-install.yml"
+    name: "Fail when preparation is incomplete"
+    status: "failed/rescued"
+  - path: "tasks/phases/migrate.yml"
+    name: "Fail when cutover is incomplete"
+    status: "failed/rescued"
+  - path: "tasks/phases/cleanup.yml"
+    name: "Require explicit cleanup confirmation"
+    status: "failed/rescued"
+  - path: "tasks/migrations/elasticsearch-6-to-8/perform-reindex.yml"
+    name: "Require mapped Elasticsearch 8 destination indices"
+    status: "failed/rescued"
+  - path: "tasks/migrations/elasticsearch-6-to-8/poll-reindex.yml"
+    name: "Fail when persisted Elasticsearch remote-reindex task ID is obsolete for aips"
+    status: "failed/rescued"

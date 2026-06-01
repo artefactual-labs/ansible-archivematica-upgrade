@@ -1,0 +1,56 @@
+---
+- name: "Create Elasticsearch migration checkpoint directory"
+  ansible.builtin.file:
+    path: "{{ _archivematica_upgrade_es_migration_checkpoint_dir }}"
+    state: "directory"
+    owner: "root"
+    group: "root"
+    mode: "0750"
+
+- name: "Check whether Elasticsearch reindexing already completed"
+  ansible.builtin.stat:
+    path: "{{ _archivematica_upgrade_reindexed_checkpoint }}"
+  register: "_archivematica_upgrade_reindexed_checkpoint_state"
+
+- name: "Prepare temporary Elasticsearch 6 runtime for reindexing"
+  ansible.builtin.include_tasks: "migrations/elasticsearch-6-to-8/prepare-es6-runtime.yml"
+  when: not _archivematica_upgrade_reindexed_checkpoint_state.stat.exists
+
+- name: "Ensure Elasticsearch 8 is running"
+  ansible.builtin.service:
+    name: "elasticsearch"
+    state: "started"
+
+- name: "Wait for Elasticsearch 8"
+  ansible.builtin.uri:
+    url: "{{ _archivematica_upgrade_destination_es_url }}/_cluster/health?wait_for_status=yellow&timeout=60s"
+    return_content: true
+  register: "_archivematica_upgrade_es8_health"
+  until:
+    - _archivematica_upgrade_es8_health.status == 200
+    - not (_archivematica_upgrade_es8_health.json.timed_out | default(false) | bool)
+  retries: 12
+  delay: 5
+
+- name: "Read Elasticsearch 8 configuration before reindexing"
+  ansible.builtin.slurp:
+    src: "/etc/elasticsearch/elasticsearch.yml"
+  register: "_archivematica_upgrade_es8_config_before_reindex"
+  when: not _archivematica_upgrade_reindexed_checkpoint_state.stat.exists
+
+- name: "Reindex Elasticsearch 6 data with cleanup"
+  when:
+    - not _archivematica_upgrade_reindexed_checkpoint_state.stat.exists
+  block:
+    - name: "Run Elasticsearch remote reindex operations"
+      ansible.builtin.include_tasks: "migrations/elasticsearch-6-to-8/perform-reindex.yml"
+  always:
+    - name: "Restore Elasticsearch 8 configuration after reindexing"
+      ansible.builtin.include_tasks: "migrations/elasticsearch-6-to-8/restore-reindex-config.yml"
+
+    - name: "Stop temporary Elasticsearch 6 after reindexing"
+      ansible.builtin.include_tasks: "migrations/elasticsearch-6-to-8/stop-es6.yml"
+
+- name: "Stop temporary Elasticsearch 6 after an already-completed reindex"
+  ansible.builtin.include_tasks: "migrations/elasticsearch-6-to-8/stop-es6.yml"
+  when: _archivematica_upgrade_reindexed_checkpoint_state.stat.exists

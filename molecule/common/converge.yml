@@ -1,0 +1,136 @@
+---
+- name: "Converge common task bootstrap without cached facts"
+  hosts: "all"
+  gather_facts: false
+  vars_files:
+    - "vars.yml"
+  tasks:
+    - name: "Run common load context tasks without gathered facts"
+      ansible.builtin.include_role:
+        name: "{{ _molecule_common_role_path }}"
+        tasks_from: "common/load-context.yml"
+
+- name: "Converge common task test host"
+  hosts: "all"
+  gather_facts: true
+  environment:
+    # Prefer fixture commands for mysql and gpg over real system binaries.
+    PATH: "/tmp/archivematica-upgrade-molecule/bin:{{ ansible_env.PATH }}"
+  vars_files:
+    - "vars.yml"
+  tasks:
+    - name: "Record selected Molecule platform"
+      ansible.builtin.debug:
+        msg: >-
+          Testing common task scenario on
+          {{ ansible_distribution }} {{ ansible_distribution_version }}.
+
+    - name: "Run common load context tasks"
+      ansible.builtin.include_role:
+        name: "{{ _molecule_common_role_path }}"
+        tasks_from: "common/load-context.yml"
+
+    - name: "Create prepared state directory"
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: "directory"
+        owner: "root"
+        group: "root"
+        mode: "0755"
+      loop:
+        - "{{ _archivematica_upgrade_state_dir }}"
+        - "{{ _archivematica_upgrade_es_migration_state_dir }}"
+
+    - name: "Write prepared AIP storage state fixture"
+      ansible.builtin.copy:
+        content: |
+          {
+            "archival_storage": {},
+            "storage_service": {}
+          }
+        dest: "{{ _archivematica_upgrade_source_aip_storage_stats_file }}"
+        owner: "root"
+        group: "root"
+        mode: "0644"
+
+    - name: "Write prepared application state fixture"
+      ansible.builtin.copy:
+        content: |
+          {
+            "dashboard": {},
+            "storage_service": {}
+          }
+        dest: "{{ _archivematica_upgrade_source_application_state_file }}"
+        owner: "root"
+        group: "root"
+        mode: "0644"
+
+    - name: "Write prepared Elasticsearch source version fixture"
+      ansible.builtin.copy:
+        content: "6.8.23\n"
+        dest: "{{ _archivematica_upgrade_source_version_file }}"
+        owner: "root"
+        group: "root"
+        mode: "0644"
+
+    - name: "Write prepared Elasticsearch source index count fixture"
+      ansible.builtin.copy:
+        content: |
+          {
+            "aips": 3,
+            "aipfiles": 6,
+            "transfers": 0,
+            "transferfiles": 0
+          }
+        dest: "{{ _archivematica_upgrade_source_counts_file }}"
+        owner: "root"
+        group: "root"
+        mode: "0644"
+
+    - name: "Write prepared Java 11 home fixture"
+      ansible.builtin.copy:
+        content: "/usr/lib/jvm/java-11-openjdk-amd64\n"
+        dest: "{{ _archivematica_upgrade_java_home_file }}"
+        owner: "root"
+        group: "root"
+        mode: "0644"
+
+    - name: "Run common load state tasks"
+      ansible.builtin.include_role:
+        name: "{{ _molecule_common_role_path }}"
+        tasks_from: "common/load-state.yml"
+
+    - name: "Run common idle requirement tasks"
+      ansible.builtin.include_role:
+        name: "{{ _molecule_common_role_path }}"
+        tasks_from: "common/require-idle.yml"
+
+    - name: "Run common migration hook dispatcher tasks directly"
+      ansible.builtin.include_role:
+        name: "{{ _molecule_common_role_path }}"
+        tasks_from: "common/run-migration-hooks.yml"
+      vars:
+        _archivematica_upgrade_hook_phase: "load-context"
+
+    - name: "Run common AIP storage capture tasks"
+      ansible.builtin.include_role:
+        name: "{{ _molecule_common_role_path }}"
+        tasks_from: "common/capture-aip-storage-stats.yml"
+      vars:
+        _archivematica_upgrade_aip_storage_es_url: "{{ _molecule_common_fixture_http_url }}"
+        _archivematica_upgrade_aip_storage_output_file: "{{ _archivematica_upgrade_destination_aip_storage_stats_file }}"
+        _archivematica_upgrade_capture_start_ss_api: false
+        _archivematica_upgrade_capture_force: true
+
+    - name: "Run common application state capture tasks"
+      ansible.builtin.include_role:
+        name: "{{ _molecule_common_role_path }}"
+        tasks_from: "common/capture-application-state.yml"
+      vars:
+        _archivematica_upgrade_application_state_output_file: "{{ _archivematica_upgrade_destination_application_state_file }}"
+        _archivematica_upgrade_capture_force: true
+
+    - name: "Run common Archivematica apt key refresh tasks"
+      ansible.builtin.include_role:
+        name: "{{ _molecule_common_role_path }}"
+        tasks_from: "common/refresh-archivematica-apt-key.yml"

@@ -1,0 +1,153 @@
+---
+- name: "Read Archival Storage AIP stats from Elasticsearch"
+  ansible.builtin.uri:
+    url: "{{ _archivematica_upgrade_aip_storage_es_url | regex_replace('/+$', '') }}/aips/_search"
+    method: "POST"
+    body_format: "json"
+    body:
+      size: 0
+      aggs:
+        total:
+          sum:
+            field: "size"
+    status_code: 200
+    return_content: true
+  register: "_archivematica_upgrade_aip_search_response"
+
+- name: "Read Archival Storage AIP file stats from Elasticsearch"
+  ansible.builtin.uri:
+    url: "{{ _archivematica_upgrade_aip_storage_es_url | regex_replace('/+$', '') }}/aipfiles/_search"
+    method: "POST"
+    body_format: "json"
+    body:
+      size: 0
+      aggs:
+        aip_uuids:
+          terms:
+            field: "AIPUUID"
+            size: 1
+    status_code: 200
+    return_content: true
+  register: "_archivematica_upgrade_aipfiles_search_response"
+
+- name: "Read Storage Service AIP package count"
+  ansible.builtin.uri:
+    url: "{{ _archivematica_upgrade_ss_api_url | regex_replace('/+$', '') }}/api/v2/file/?package_type=AIP&limit=0"
+    headers:
+      Authorization: "ApiKey {{ archivematica_upgrade_ss_api_user }}:{{ archivematica_upgrade_ss_api_key }}"
+      Content-Type: "application/json"
+    return_content: true
+    status_code: 200
+    validate_certs: "{{ archivematica_upgrade_validate_certs | bool }}"
+  register: "_archivematica_upgrade_ss_aip_count_response"
+  failed_when: false
+  no_log: true
+
+- name: "Start Storage Service before retrying AIP package count"
+  ansible.builtin.service:
+    name: "archivematica-storage-service"
+    state: "started"
+  when:
+    - _archivematica_upgrade_capture_start_ss_api | default(false) | bool
+    - _archivematica_upgrade_ss_aip_count_response.status | default(0) | int != 200
+
+- name: "Retry Storage Service AIP package count"
+  ansible.builtin.uri:
+    url: "{{ _archivematica_upgrade_ss_api_url | regex_replace('/+$', '') }}/api/v2/file/?package_type=AIP&limit=0"
+    headers:
+      Authorization: "ApiKey {{ archivematica_upgrade_ss_api_user }}:{{ archivematica_upgrade_ss_api_key }}"
+      Content-Type: "application/json"
+    return_content: true
+    status_code: 200
+    validate_certs: "{{ archivematica_upgrade_validate_certs | bool }}"
+  register: "_archivematica_upgrade_ss_aip_count_retry"
+  until: _archivematica_upgrade_ss_aip_count_retry.status == 200
+  retries: 12
+  delay: 5
+  when:
+    - _archivematica_upgrade_capture_start_ss_api | default(false) | bool
+    - _archivematica_upgrade_ss_aip_count_response.status | default(0) | int != 200
+  no_log: true
+
+- name: "Select Storage Service AIP package count response"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_effective_ss_aip_count_response: >-
+      {{
+        _archivematica_upgrade_ss_aip_count_retry
+        if _archivematica_upgrade_ss_aip_count_retry.status | default(0) | int == 200
+        else _archivematica_upgrade_ss_aip_count_response
+      }}
+  no_log: true
+
+- name: "Require Storage Service AIP package count"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_effective_ss_aip_count_response.status | default(0) | int == 200
+    fail_msg: >-
+      The Storage Service API did not return AIP package counts. Start the
+      Storage Service or check archivematica_upgrade_ss_api_url and API
+      credentials before capturing upgrade state.
+
+- name: "Read Storage Service AIP package counts by status"
+  ansible.builtin.uri:
+    url: "{{ _archivematica_upgrade_ss_api_url | regex_replace('/+$', '') }}/api/v2/file/?package_type=AIP&status={{ item }}&limit=0"
+    headers:
+      Authorization: "ApiKey {{ archivematica_upgrade_ss_api_user }}:{{ archivematica_upgrade_ss_api_key }}"
+      Content-Type: "application/json"
+    return_content: true
+    status_code: 200
+    validate_certs: "{{ archivematica_upgrade_validate_certs | bool }}"
+  loop:
+    - "UPLOADED"
+    - "DEL_REQ"
+  register: "_archivematica_upgrade_ss_aip_status_responses"
+  no_log: true
+
+- name: "Initialize captured Storage Service AIP package counts by status"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_ss_aip_counts_by_status: {}
+
+- name: "Collect captured Storage Service AIP package counts by status"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_ss_aip_counts_by_status: >-
+      {{
+        _archivematica_upgrade_ss_aip_counts_by_status |
+        combine({item.item: item.json.meta.total_count | default(0) | int})
+      }}
+  loop: "{{ _archivematica_upgrade_ss_aip_status_responses.results }}"
+  no_log: true
+
+- name: "Set captured AIP storage stats"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_captured_aip_storage_stats: >-
+      {{
+        {
+          'archival_storage': {
+            'aip_count': (
+              _archivematica_upgrade_aip_search_response.json.hits.total.value |
+              default(_archivematica_upgrade_aip_search_response.json.hits.total) |
+              int
+            ),
+            'aip_total_size_mb': _archivematica_upgrade_aip_search_response.json.aggregations.total.value | default(0) | float,
+            'aip_file_count': (
+              _archivematica_upgrade_aipfiles_search_response.json.hits.total.value |
+              default(_archivematica_upgrade_aipfiles_search_response.json.hits.total) |
+              int
+            )
+          },
+          'storage_service': {
+            'aip_count': _archivematica_upgrade_effective_ss_aip_count_response.json.meta.total_count | default(0) | int,
+            'aip_counts_by_status': _archivematica_upgrade_ss_aip_counts_by_status
+          }
+        }
+      }}
+  no_log: true
+
+- name: "Store captured AIP storage stats"
+  ansible.builtin.copy:
+    content: "{{ _archivematica_upgrade_captured_aip_storage_stats | to_nice_json }}\n"
+    dest: "{{ _archivematica_upgrade_aip_storage_output_file }}"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+    force: "{{ _archivematica_upgrade_capture_force | default(true) | bool }}"

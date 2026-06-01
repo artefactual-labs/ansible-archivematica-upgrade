@@ -1,0 +1,18 @@
+---
+- name: "Run sqlite check-readiness phase"
+  ansible.builtin.include_tasks: "run-role-phase.yml"
+  vars:
+    _phase_coverage_phase: "check-readiness"
+    archivematica_src_ss_db_mysql_enabled: false
+
+- name: "Run sqlite prepare phase"
+  ansible.builtin.include_tasks: "run-role-phase.yml"
+  vars:
+    _phase_coverage_phase: "prepare"
+    archivematica_src_ss_db_mysql_enabled: false
+
+- name: "Run sqlite restore-backup-check phase"
+  ansible.builtin.include_tasks: "run-role-phase.yml"
+  vars:
+    _phase_coverage_phase: "restore-backup-check"
+    archivematica_src_ss_db_mysql_enabled: false

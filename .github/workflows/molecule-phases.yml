@@ -1,0 +1,54 @@
+---
+name: Molecule phases
+
+on:
+  pull_request:
+    paths:
+      - "defaults/**"
+      - "meta/**"
+      - "tasks/**"
+      - "vars/**"
+      - "molecule/**"
+      - "Makefile"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/molecule-phases.yml"
+  push:
+    branches:
+      - "main"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  molecule-phases:
+    name: Molecule phases
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+
+      - name: Run phase and migration Molecule scenarios
+        run: make molecule-test-phases
+
+      - name: Capture phase coverage summary
+        if: always()
+        run: |
+          mkdir -p coverage
+          if [ -d .ansible/molecule ] && find .ansible/molecule -name "*-task-coverage.jsonl" -print -quit | grep -q .; then
+            make molecule-phase-coverage > coverage/phase-coverage.json
+          fi
+
+      - name: Upload phase coverage artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: molecule-phase-coverage
+          path: |
+            coverage/phase-coverage.json
+            .ansible/molecule/*-task-coverage.jsonl
+          if-no-files-found: ignore

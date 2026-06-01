@@ -1,0 +1,106 @@
+---
+- name: "Load common Archivematica upgrade values"
+  ansible.builtin.include_tasks: "common/load-context.yml"
+
+- name: "Require explicit restore confirmation"
+  ansible.builtin.assert:
+    that:
+      - archivematica_upgrade_restore_confirmed | default(false) | bool
+    fail_msg: >-
+      Set archivematica_upgrade_restore_confirmed=true after confirming that
+      the role should start restoring from rollback backups.
+
+- name: "Validate rollback backups before restore startup"
+  ansible.builtin.include_tasks: "phases/restore-backup-check.yml"
+
+- name: "Load prepared Archivematica upgrade state"
+  ansible.builtin.include_tasks: "common/load-state.yml"
+
+- name: "Require a safe processing configuration restore path"
+  ansible.builtin.assert:
+    that:
+      - (_archivematica_upgrade_processing_config_dir | string) is match('^/[A-Za-z0-9._/-]+$')
+      - (_archivematica_upgrade_processing_config_dir | string) != '/'
+      - not (_archivematica_upgrade_processing_config_dir | string).endswith('/')
+      - "'..' not in (_archivematica_upgrade_processing_config_dir | string).split('/')"
+    fail_msg: >-
+      Set archivematica_upgrade_processing_config_dir to a simple absolute path
+      before restoring processing configuration files.
+
+- name: "Run restore-backup-before-services hooks for active migrations"
+  ansible.builtin.include_tasks: "common/run-migration-hooks.yml"
+  vars:
+    _archivematica_upgrade_hook_phase: "restore-backup-before-services"
+
+- name: "Stop Archivematica application services before restore"
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: "stopped"
+  loop: "{{ _archivematica_upgrade_application_services }}"
+
+- name: "Run restore-backup hooks for active migrations"
+  ansible.builtin.include_tasks: "common/run-migration-hooks.yml"
+  vars:
+    _archivematica_upgrade_hook_phase: "restore-backup"
+
+- name: "Restore Archivematica MySQL databases from rollback backups"
+  ansible.builtin.shell: |
+    set -o errexit -o nounset -o pipefail
+    gzip -dc {{ (_archivematica_upgrade_backup_dir ~ '/' ~ item.name ~ '.sql.gz') | quote }} |
+      mysql {{ _archivematica_upgrade_mysql_client_args | map('quote') | join(' ') }} {{ item.name | quote }}
+  args:
+    executable: "/bin/bash"
+  loop:
+    - name: "{{ archivematica_src_am_db_name }}"
+      enabled: true
+    - name: "{{ archivematica_src_ss_db_name }}"
+      enabled: "{{ archivematica_src_ss_db_mysql_enabled | default(true) | bool }}"
+  loop_control:
+    label: "{{ item.name }}"
+  changed_when: true
+  no_log: true
+  when: item.enabled | bool
+
+- name: "Remove current Dashboard processing configuration files"
+  ansible.builtin.file:
+    path: "{{ _archivematica_upgrade_processing_config_dir }}"
+    state: "absent"
+
+- name: "Recreate Dashboard processing configuration directory"
+  ansible.builtin.file:
+    path: "{{ _archivematica_upgrade_processing_config_dir }}"
+    state: "directory"
+    owner: "{{ _archivematica_upgrade_archivematica_user }}"
+    group: "{{ _archivematica_upgrade_archivematica_group }}"
+    mode: "0750"
+
+- name: "Restore Dashboard processing configuration files"
+  ansible.builtin.unarchive:
+    src: "{{ _archivematica_upgrade_processing_config_archive }}"
+    dest: "{{ _archivematica_upgrade_processing_config_dir }}"
+    remote_src: true
+
+- name: "Set restored Dashboard processing configuration ownership"
+  ansible.builtin.file:
+    path: "{{ _archivematica_upgrade_processing_config_dir }}"
+    state: "directory"
+    owner: "{{ _archivematica_upgrade_archivematica_user }}"
+    group: "{{ _archivematica_upgrade_archivematica_group }}"
+    recurse: true
+
+- name: "Set restored Dashboard processing configuration directory mode"
+  ansible.builtin.file:
+    path: "{{ _archivematica_upgrade_processing_config_dir }}"
+    state: "directory"
+    owner: "{{ _archivematica_upgrade_archivematica_user }}"
+    group: "{{ _archivematica_upgrade_archivematica_group }}"
+    mode: "0750"
+
+- name: "Record restore startup"
+  ansible.builtin.copy:
+    content: "{{ ansible_date_time.iso8601 }}\n"
+    dest: "{{ _archivematica_upgrade_checkpoint_dir }}/restore-started"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+    force: false

@@ -1,0 +1,39 @@
+---
+- name: "Run check-readiness phase"
+  ansible.builtin.include_tasks: "run-role-phase.yml"
+  vars:
+    _phase_coverage_phase: "check-readiness"
+
+- name: "Run prepare phase"
+  ansible.builtin.include_tasks: "run-role-phase.yml"
+  vars:
+    _phase_coverage_phase: "prepare"
+
+- name: "Run cutover-before-install phase"
+  ansible.builtin.include_tasks: "run-role-phase.yml"
+  vars:
+    _phase_coverage_phase: "cutover-before-install"
+
+- name: "Simulate installer handoff to Elasticsearch 8"
+  ansible.builtin.include_tasks: "simulate-installer-handoff.yml"
+
+- name: "Run cutover-after-install phase"
+  ansible.builtin.include_tasks: "run-role-phase.yml"
+  vars:
+    _phase_coverage_phase: "cutover-after-install"
+
+- name: "Run migrate phase"
+  ansible.builtin.include_tasks: "run-role-phase.yml"
+  vars:
+    _phase_coverage_phase: "migrate"
+
+- name: "Run validate phase"
+  ansible.builtin.include_tasks: "run-role-phase.yml"
+  vars:
+    _phase_coverage_phase: "validate"
+
+- name: "Run cleanup phase retaining rollback data"
+  ansible.builtin.include_tasks: "run-role-phase.yml"
+  vars:
+    _phase_coverage_phase: "cleanup"
+    archivematica_upgrade_remove_rollback_data_confirmed: false

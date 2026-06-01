@@ -1,0 +1,31 @@
+---
+- name: "Load common Archivematica upgrade values"
+  ansible.builtin.include_tasks: "common/load-context.yml"
+
+- name: "Load prepared Archivematica upgrade state"
+  ansible.builtin.include_tasks: "common/load-state.yml"
+
+- name: "Require completed preparation"
+  ansible.builtin.stat:
+    path: "{{ _archivematica_upgrade_checkpoint_dir }}/prepared"
+  register: "_archivematica_upgrade_prepared_checkpoint"
+
+- name: "Fail when preparation is incomplete"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_prepared_checkpoint.stat.exists
+    fail_msg: "Run the prepare phase successfully before cutover."
+
+- name: "Refresh Archivematica apt repository key"
+  ansible.builtin.include_tasks: "common/refresh-archivematica-apt-key.yml"
+
+- name: "Stop Archivematica application services during cutover"
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: "stopped"
+  loop: "{{ _archivematica_upgrade_application_services }}"
+
+- name: "Run cutover-before-install hooks for active migrations"
+  ansible.builtin.include_tasks: "common/run-migration-hooks.yml"
+  vars:
+    _archivematica_upgrade_hook_phase: "cutover-before-install"

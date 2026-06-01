@@ -1,0 +1,411 @@
+---
+- name: "Gather facts for the selected Archivematica upgrade phase"
+  ansible.builtin.setup:
+  when:
+    - >-
+      ansible_distribution is not defined or
+      ansible_date_time is not defined or
+      ansible_user_uid is not defined
+
+- name: "Read the effective user ID for the selected Archivematica upgrade phase"
+  ansible.builtin.command:
+    argv:
+      - "id"
+      - "-u"
+  register: "_archivematica_upgrade_effective_user_id"
+  changed_when: false
+
+- name: "Require role phases to run with become: true"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_effective_user_id.stdout | int == 0
+    fail_msg: "Run Archivematica upgrade role phases with become: true."
+
+- name: "Require a single Archivematica host"
+  ansible.builtin.assert:
+    that:
+      - ansible_play_hosts_all | length == 1
+    fail_msg: >-
+      The Archivematica 1.17 to 1.18 upgrade supports one all-in-one host at a
+      time.
+
+- name: "Set selected Archivematica upgrade path metadata"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_path_config: >-
+      {{ _archivematica_upgrade_supported_paths[archivematica_upgrade_path] }}
+    _archivematica_upgrade_active_migrations: >-
+      {{
+        _archivematica_upgrade_supported_paths[archivematica_upgrade_path].migrations |
+        default([])
+      }}
+
+- name: "Set selected Archivematica upgrade migration flags"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_has_es6_to_8_migration: >-
+      {{ 'elasticsearch-6-to-8' in _archivematica_upgrade_active_migrations }}
+
+- name: "Set effective Archivematica upgrade target constraints"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_effective_src_role_names: >-
+      {{
+        archivematica_upgrade_src_role_names
+        if (archivematica_upgrade_src_role_names | default([]) | length) > 0
+        else _archivematica_upgrade_path_config.target.src_role_names
+      }}
+    _archivematica_upgrade_effective_am_version_pattern: >-
+      {{
+        archivematica_upgrade_am_version_pattern
+        if (archivematica_upgrade_am_version_pattern | default('') | length) > 0
+        else _archivematica_upgrade_path_config.target.archivematica_version_pattern
+      }}
+    _archivematica_upgrade_effective_ss_version_pattern: >-
+      {{
+        archivematica_upgrade_ss_version_pattern
+        if (archivematica_upgrade_ss_version_pattern | default('') | length) > 0
+        else _archivematica_upgrade_path_config.target.storage_service_version_pattern
+      }}
+
+- name: "Validate Archivematica upgrade path metadata"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_path_config is mapping
+      - _archivematica_upgrade_path_config.target is mapping
+      - _archivematica_upgrade_active_migrations is sequence
+      - _archivematica_upgrade_active_migrations is not string
+      - >-
+        _archivematica_upgrade_active_migrations |
+        reject('string') |
+        list |
+        length == 0
+      - >-
+        _archivematica_upgrade_active_migrations |
+        select('match', '^[a-z0-9][a-z0-9-]*$') |
+        list |
+        length == _archivematica_upgrade_active_migrations | length
+      - _archivematica_upgrade_effective_src_role_names is sequence
+      - _archivematica_upgrade_effective_src_role_names is not string
+      - _archivematica_upgrade_effective_src_role_names | length > 0
+      - >-
+        _archivematica_upgrade_effective_src_role_names |
+        reject('string') |
+        list |
+        length == 0
+      - _archivematica_upgrade_effective_am_version_pattern | length > 0
+      - _archivematica_upgrade_effective_ss_version_pattern | length > 0
+    fail_msg: >-
+      The selected Archivematica upgrade path metadata must define target
+      installer constraints and an optional ordered migrations list.
+
+- name: "Set Archivematica upgrade paths and constants"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_root: "{{ archivematica_upgrade_root }}"
+    _archivematica_upgrade_source_es_url: "{{ archivematica_upgrade_source_es_url }}"
+    _archivematica_upgrade_destination_es_url: "{{ archivematica_upgrade_destination_es_url }}"
+    _archivematica_upgrade_es_config_dir: "/etc/elasticsearch"
+    _archivematica_upgrade_es_data_dir: "{{ archivematica_upgrade_es_data_dir }}"
+    _archivematica_upgrade_es_log_dir: "/var/log/elasticsearch"
+    _archivematica_upgrade_processing_config_dir: "{{ archivematica_upgrade_processing_config_dir }}"
+    _archivematica_upgrade_archivematica_user: "{{ archivematica_upgrade_archivematica_user }}"
+    _archivematica_upgrade_archivematica_group: "{{ archivematica_upgrade_archivematica_group }}"
+    _archivematica_upgrade_mcp_client_instances: "{{ archivematica_src_am_mcpclient_instances | default(1) | int }}"
+
+- name: "Set Elasticsearch 6 to 8 migration constants"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_es6_port: "{{ archivematica_upgrade_es6_port }}"
+    _archivematica_upgrade_indices:
+      - "aips"
+      - "aipfiles"
+      - "transfers"
+      - "transferfiles"
+    _archivematica_upgrade_es6_user: "{{ archivematica_upgrade_es6_user | default(ansible_user | default('artefactual'), true) }}"
+  when: _archivematica_upgrade_has_es6_to_8_migration
+
+- name: "Validate Archivematica upgrade identifier"
+  ansible.builtin.assert:
+    that:
+      - "(archivematica_upgrade_id | default('') | length) > 0"
+      - "(archivematica_upgrade_id | default('')) is match('^[A-Za-z0-9._-]+$')"
+    fail_msg: >-
+      Set archivematica_upgrade_id to a stable identifier containing only
+      letters, numbers, dots, underscores, or dashes.
+
+- name: "Validate Archivematica upgrade path"
+  ansible.builtin.assert:
+    that:
+      - (_archivematica_upgrade_root | string) is match('^/[A-Za-z0-9._/-]+$')
+      - (_archivematica_upgrade_root | string) != '/'
+      - not (_archivematica_upgrade_root | string).endswith('/')
+      - "'..' not in (_archivematica_upgrade_root | string).split('/')"
+    fail_msg: >-
+      Set archivematica_upgrade_root to a simple absolute path.
+
+- name: "Validate Elasticsearch filesystem paths"
+  ansible.builtin.assert:
+    that:
+      - (_archivematica_upgrade_es_data_dir | string) is match('^/[A-Za-z0-9._/-]+$')
+      - (_archivematica_upgrade_es_data_dir | string) != '/'
+      - not (_archivematica_upgrade_es_data_dir | string).endswith('/')
+      - "'..' not in (_archivematica_upgrade_es_data_dir | string).split('/')"
+      - (_archivematica_upgrade_es_config_dir | string) is match('^/[A-Za-z0-9._/-]+$')
+      - (_archivematica_upgrade_es_config_dir | string) != '/'
+      - not (_archivematica_upgrade_es_config_dir | string).endswith('/')
+      - "'..' not in (_archivematica_upgrade_es_config_dir | string).split('/')"
+      - (_archivematica_upgrade_es_log_dir | string) is match('^/[A-Za-z0-9._/-]+$')
+      - (_archivematica_upgrade_es_log_dir | string) != '/'
+      - not (_archivematica_upgrade_es_log_dir | string).endswith('/')
+      - "'..' not in (_archivematica_upgrade_es_log_dir | string).split('/')"
+    fail_msg: "Set archivematica_upgrade_es_data_dir to a simple absolute path."
+
+- name: "Validate Elasticsearch 6 to 8 migration port"
+  ansible.builtin.assert:
+    that:
+      - (_archivematica_upgrade_es6_port | string) is match('^[0-9]+$')
+      - _archivematica_upgrade_es6_port | int > 0
+      - _archivematica_upgrade_es6_port | int <= 65535
+    fail_msg: "Set archivematica_upgrade_es6_port to a valid TCP port."
+  when: _archivematica_upgrade_has_es6_to_8_migration
+
+- name: "Validate Elasticsearch endpoint URLs"
+  ansible.builtin.assert:
+    that:
+      - archivematica_upgrade_source_es_url is match('^https?://')
+      - archivematica_upgrade_destination_es_url is match('^https?://')
+    fail_msg: >-
+      Set archivematica_upgrade_source_es_url and
+      archivematica_upgrade_destination_es_url to HTTP or HTTPS Elasticsearch
+      endpoint URLs.
+
+- name: "Validate Archivematica database names"
+  ansible.builtin.assert:
+    that:
+      - archivematica_src_am_db_name | default('') | length > 0
+      - archivematica_src_ss_db_name | default('') | length > 0
+      - archivematica_src_am_db_name is match('^[A-Za-z0-9_]+$')
+      - archivematica_src_ss_db_name is match('^[A-Za-z0-9_]+$')
+    fail_msg: >-
+      Set archivematica_src_am_db_name and archivematica_src_ss_db_name to
+      non-empty MySQL database name identifiers.
+
+- name: "Validate Archivematica application services"
+  ansible.builtin.assert:
+    that:
+      - archivematica_upgrade_application_services is sequence
+      - archivematica_upgrade_application_services is not string
+      - archivematica_upgrade_application_services | length > 0
+      - archivematica_upgrade_common_local_services is sequence
+      - archivematica_upgrade_common_local_services is not string
+      - archivematica_upgrade_ignored_common_local_services is sequence
+      - archivematica_upgrade_ignored_common_local_services is not string
+    fail_msg: "Set archivematica_upgrade_application_services to a non-empty list of local systemd service names."
+
+- name: "Validate Archivematica MCP client instance count"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_mcp_client_instances | int > 0
+    fail_msg: "Set archivematica_src_am_mcpclient_instances to a positive integer."
+
+- name: "Validate MySQL dump timeout"
+  ansible.builtin.assert:
+    that:
+      - archivematica_upgrade_mysqldump_timeout | int > 0
+    fail_msg: "Set archivematica_upgrade_mysqldump_timeout to a positive number of seconds."
+
+- name: "Validate Elasticsearch data operation timeout"
+  ansible.builtin.assert:
+    that:
+      - archivematica_upgrade_es_data_timeout | int > 0
+    fail_msg: "Set archivematica_upgrade_es_data_timeout to a positive number of seconds."
+
+- name: "Validate Elasticsearch reindex timeout"
+  ansible.builtin.assert:
+    that:
+      - archivematica_upgrade_reindex_timeout | int > 0
+    fail_msg: "Set archivematica_upgrade_reindex_timeout to a positive number of seconds."
+  when: _archivematica_upgrade_has_es6_to_8_migration
+
+- name: "Validate optional Dashboard search validation URL"
+  ansible.builtin.assert:
+    that:
+      - archivematica_upgrade_am_search_validation_url is string
+    fail_msg: "Set archivematica_upgrade_am_search_validation_url to an optional URL."
+
+- name: "Validate optional MySQL client configuration"
+  ansible.builtin.assert:
+    that:
+      - archivematica_upgrade_mysql_defaults_extra_file is string
+      - >-
+        archivematica_upgrade_mysql_defaults_extra_file | length == 0 or
+        archivematica_upgrade_mysql_defaults_extra_file is match('^/[A-Za-z0-9._/-]+$')
+      - "'..' not in archivematica_upgrade_mysql_defaults_extra_file.split('/')"
+      - archivematica_upgrade_mysql_client_args is sequence
+      - archivematica_upgrade_mysql_client_args is not string
+      - archivematica_upgrade_mysql_client_args | reject('string') | list | length == 0
+      - >-
+        archivematica_upgrade_mysql_client_args |
+        select('match', '^(--password($|=)|-p$|-p.+)') |
+        list |
+        length == 0
+    fail_msg: >-
+      Set archivematica_upgrade_mysql_defaults_extra_file to an optional simple
+      absolute path and archivematica_upgrade_mysql_client_args to a list of
+      non-secret MySQL command-line arguments. Keep MySQL credentials in a
+      protected defaults file.
+
+- name: "Inspect the optional MySQL defaults file"
+  ansible.builtin.stat:
+    path: "{{ archivematica_upgrade_mysql_defaults_extra_file }}"
+    follow: true
+  register: "_archivematica_upgrade_mysql_defaults_extra_file_state"
+  when: archivematica_upgrade_mysql_defaults_extra_file | length > 0
+
+- name: "Require the configured MySQL defaults file"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_mysql_defaults_extra_file_state.stat.isreg | default(false)
+    fail_msg: >-
+      The configured archivematica_upgrade_mysql_defaults_extra_file does not
+      identify a regular file.
+  when: archivematica_upgrade_mysql_defaults_extra_file | length > 0
+
+- name: "Set MySQL client command arguments"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_mysql_client_args: >-
+      {{
+        (
+          ['--defaults-extra-file=' ~ archivematica_upgrade_mysql_defaults_extra_file]
+          if archivematica_upgrade_mysql_defaults_extra_file | length > 0
+          else []
+        ) +
+        archivematica_upgrade_mysql_client_args
+      }}
+
+- name: "Set normalized Archivematica validation URLs"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_am_api_url: >-
+      {{
+        ''
+        if archivematica_upgrade_am_api_url | length == 0
+        else (
+          archivematica_upgrade_am_api_url
+          if archivematica_upgrade_am_api_url is match('^https?://')
+          else 'http://' ~ archivematica_upgrade_am_api_url
+        )
+      }}
+    _archivematica_upgrade_ss_api_url: >-
+      {{
+        ''
+        if archivematica_upgrade_ss_api_url | length == 0
+        else (
+          archivematica_upgrade_ss_api_url
+          if archivematica_upgrade_ss_api_url is match('^https?://')
+          else 'http://' ~ archivematica_upgrade_ss_api_url
+        )
+      }}
+
+- name: "Initialize Archivematica MCP client service names"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_mcp_client_services: >-
+      {{
+        ['archivematica-mcp-client']
+        if _archivematica_upgrade_mcp_client_instances | int == 1
+        else []
+      }}
+
+- name: "Collect numbered Archivematica MCP client service names"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_mcp_client_services: >-
+      {{
+        _archivematica_upgrade_mcp_client_services +
+        [('archivematica-mcp-client-%1d' | format(item))]
+      }}
+  loop: "{{ range(1, (_archivematica_upgrade_mcp_client_instances | int) + 1, 1) | list }}"
+  when: _archivematica_upgrade_mcp_client_instances | int > 1
+
+- name: "Read local service facts for managed common services"
+  ansible.builtin.service_facts:
+
+- name: "Initialize installed common local service names"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_installed_common_local_services: []
+
+- name: "Collect installed common local service names"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_installed_common_local_services: >-
+      {{ _archivematica_upgrade_installed_common_local_services + [item] }}
+  loop: "{{ archivematica_upgrade_common_local_services }}"
+  when:
+    - item + '.service' in ansible_facts.services
+    - item not in archivematica_upgrade_ignored_common_local_services
+
+- name: "Set Archivematica application service names"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_application_services: >-
+      {{
+        (
+          (
+            archivematica_upgrade_application_services |
+            reject('equalto', 'archivematica-mcp-client') |
+            list
+          ) +
+          _archivematica_upgrade_mcp_client_services +
+          _archivematica_upgrade_installed_common_local_services
+        ) |
+        difference(archivematica_upgrade_ignored_common_local_services) |
+        unique |
+        list
+      }}
+
+- name: "Set derived Archivematica upgrade paths"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_path: "{{ _archivematica_upgrade_root }}/{{ archivematica_upgrade_id }}"
+    _archivematica_upgrade_preserved_es_config_dir: "/etc/elasticsearch-before-upgrade"
+    _archivematica_upgrade_preserved_es_data_dir: "{{ _archivematica_upgrade_es_data_dir }}-before-upgrade"
+    _archivematica_upgrade_preserved_es_log_dir: "/var/log/elasticsearch-before-upgrade"
+
+- name: "Set Elasticsearch 6 to 8 migration URL"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_es6_url: "http://127.0.0.1:{{ _archivematica_upgrade_es6_port }}"
+  when: _archivematica_upgrade_has_es6_to_8_migration
+
+- name: "Look up the temporary Elasticsearch user"
+  ansible.builtin.getent:
+    database: "passwd"
+    key: "{{ _archivematica_upgrade_es6_user }}"
+    fail_key: false
+  when: _archivematica_upgrade_has_es6_to_8_migration
+
+- name: "Require an existing non-root temporary Elasticsearch user"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_es6_user != 'root'
+      - ansible_facts.getent_passwd[_archivematica_upgrade_es6_user] | default([]) | length > 0
+    fail_msg: "Set archivematica_upgrade_es6_user to an existing non-root local account that can run temporary Elasticsearch 6."
+  when: _archivematica_upgrade_has_es6_to_8_migration
+
+- name: "Set temporary Elasticsearch primary group"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_es6_group: "{{ ansible_facts.getent_passwd[_archivematica_upgrade_es6_user][2] }}"
+  when: _archivematica_upgrade_has_es6_to_8_migration
+
+- name: "Set Archivematica upgrade state paths"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_backup_dir: "{{ _archivematica_upgrade_path }}/backups"
+    _archivematica_upgrade_checkpoint_dir: "{{ _archivematica_upgrade_path }}/checkpoints"
+    _archivematica_upgrade_state_dir: "{{ _archivematica_upgrade_path }}/state"
+    _archivematica_upgrade_source_aip_storage_stats_file: "{{ _archivematica_upgrade_path }}/state/source-aip-storage-stats.json"
+    _archivematica_upgrade_destination_aip_storage_stats_file: "{{ _archivematica_upgrade_path }}/state/destination-aip-storage-stats.json"
+    _archivematica_upgrade_source_application_state_file: "{{ _archivematica_upgrade_path }}/state/source-application-state.json"
+    _archivematica_upgrade_destination_application_state_file: "{{ _archivematica_upgrade_path }}/state/destination-application-state.json"
+    _archivematica_upgrade_processing_config_archive: "{{ _archivematica_upgrade_path }}/backups/processing-configs-before-upgrade.tgz"
+    _archivematica_upgrade_es_data_archive_artifact: "elasticsearch-data-before-upgrade.tgz"
+    _archivematica_upgrade_es_config_archive_artifact: "elasticsearch-config-before-upgrade.tgz"
+    _archivematica_upgrade_es_log_archive_artifact: "elasticsearch-logs-before-upgrade.tgz"
+    _archivematica_upgrade_es_data_archive: "{{ _archivematica_upgrade_path }}/backups/elasticsearch-data-before-upgrade.tgz"
+    _archivematica_upgrade_es_config_archive: "{{ _archivematica_upgrade_path }}/backups/elasticsearch-config-before-upgrade.tgz"
+    _archivematica_upgrade_es_log_archive: "{{ _archivematica_upgrade_path }}/backups/elasticsearch-logs-before-upgrade.tgz"
+    _archivematica_upgrade_backup_manifest_file: "{{ _archivematica_upgrade_path }}/backups/backup-manifest.json"
+
+- name: "Run load-context hooks for active migrations"
+  ansible.builtin.include_tasks: "common/run-migration-hooks.yml"
+  vars:
+    _archivematica_upgrade_hook_phase: "load-context"

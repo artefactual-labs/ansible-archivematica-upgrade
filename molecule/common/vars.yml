@@ -1,0 +1,34 @@
+---
+_molecule_common_fixture_root: "/tmp/archivematica-upgrade-molecule"
+_molecule_common_fixture_http_url: "http://127.0.0.1:18080"
+_molecule_common_role_path: "{{ playbook_dir }}/../.."
+_molecule_common_coverage_config: "{{ _molecule_common_role_path }}/molecule/common/coverage.yml"
+_molecule_common_coverage_file: "{{ _molecule_common_role_path }}/.ansible/molecule/common-task-coverage.jsonl"
+
+archivematica_upgrade_id: "molecule-common"
+archivematica_upgrade_root: "{{ _molecule_common_fixture_root }}/upgrade-root"
+archivematica_upgrade_es6_user: "molecule-es6"
+archivematica_upgrade_es_data_dir: "{{ _molecule_common_fixture_root }}/elasticsearch"
+archivematica_upgrade_source_es_url: "{{ _molecule_common_fixture_http_url }}"
+archivematica_upgrade_destination_es_url: "{{ _molecule_common_fixture_http_url }}"
+archivematica_upgrade_processing_config_dir: "{{ _molecule_common_fixture_root }}/processingMCPConfigs"
+archivematica_upgrade_mysql_client_args: []
+archivematica_upgrade_application_services:
+  - "archivematica-storage-service"
+  - "archivematica-dashboard"
+  - "archivematica-mcp-server"
+  - "archivematica-mcp-client"
+archivematica_upgrade_common_local_services:
+  - "gearman-job-server"
+  - "nginx"
+archivematica_upgrade_ignored_common_local_services: []
+archivematica_upgrade_am_api_url: "{{ _molecule_common_fixture_http_url }}"
+archivematica_upgrade_ss_api_url: "{{ _molecule_common_fixture_http_url }}"
+archivematica_upgrade_ss_api_user: "molecule"
+archivematica_upgrade_ss_api_key: "molecule"
+archivematica_upgrade_validate_certs: false
+archivematica_upgrade_archivematica_apt_key_url: "{{ _molecule_common_fixture_http_url }}/GPG-KEY-archivematica"
+archivematica_upgrade_archivematica_apt_keyring_path: "{{ _molecule_common_fixture_root }}/keyrings/archivematica-archive-keyring.gpg"
+archivematica_src_am_db_name: "MCP"
+archivematica_src_ss_db_name: "SS"
+archivematica_src_am_mcpclient_instances: 1

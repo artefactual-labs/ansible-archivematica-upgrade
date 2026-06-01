@@ -1,0 +1,183 @@
+---
+- name: "Seed prepared state for restore validate cleanup checks"
+  ansible.builtin.include_tasks: "seed-prepared-state.yml"
+
+- name: "Load prepared state for restore validate cleanup checks"
+  ansible.builtin.include_tasks: "load-state.yml"
+
+- name: "Remove dummy Elasticsearch package for restore package guardrail"
+  ansible.builtin.command:
+    argv:
+      - "dpkg"
+      - "-r"
+      - "elasticsearch"
+  changed_when: false
+  failed_when: false
+
+- name: "Verify restore-backup-before-services rejects missing packaged ES6"
+  block:
+    - name: "Run restore-backup-before-services without Elasticsearch package"
+      ansible.builtin.include_tasks: "run-migration-file.yml"
+      vars:
+        _phase_coverage_migration_file: "restore-backup-before-services"
+
+    - name: "Fail when restore-backup-before-services accepts missing package"
+      ansible.builtin.fail:
+        msg: "restore-backup-before-services accepted missing package"
+  rescue:
+    - name: "Require missing packaged ES6 failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'Restore packaged Elasticsearch 6' in (ansible_failed_result.msg | default(''))"
+
+- name: "Create preserved Elasticsearch config as a file"
+  ansible.builtin.copy:
+    content: "not a directory\n"
+    dest: "{{ _archivematica_upgrade_preserved_es_config_dir }}"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+
+- name: "Verify restore-backup rejects non-directory preserved path"
+  block:
+    - name: "Run restore-backup hook with non-directory preserved path"
+      ansible.builtin.include_tasks: "run-migration-file.yml"
+      vars:
+        _phase_coverage_migration_file: "restore-backup"
+
+    - name: "Fail when restore-backup accepts non-directory preserved path"
+      ansible.builtin.fail:
+        msg: "restore-backup accepted non-directory preserved path"
+  rescue:
+    - name: "Require non-directory preserved path failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'not a directory' in (ansible_failed_result | to_json)"
+
+- name: "Remove non-directory preserved path"
+  ansible.builtin.file:
+    path: "{{ _archivematica_upgrade_preserved_es_config_dir }}"
+    state: "absent"
+
+- name: "Verify validate-before-services rejects incomplete reindexing"
+  block:
+    - name: "Run validate-before-services without reindex checkpoint"
+      ansible.builtin.include_tasks: "run-migration-file.yml"
+      vars:
+        _phase_coverage_migration_file: "validate-before-services"
+
+    - name: "Fail when validate-before-services accepts missing reindex checkpoint"
+      ansible.builtin.fail:
+        msg: "validate-before-services accepted missing reindex checkpoint"
+  rescue:
+    - name: "Require missing reindex checkpoint failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'migrate phase' in (ansible_failed_result.msg | default(''))"
+
+- name: "Seed completed reindex checkpoint"
+  ansible.builtin.copy:
+    content: "seeded\n"
+    dest: "{{ _archivematica_upgrade_reindexed_checkpoint }}"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+
+- name: "Start temporary Elasticsearch fixture for stopped-port guardrails"
+  ansible.builtin.command:
+    argv:
+      - "{{ _phase_coverage_fixture_root }}/phase_fixture_http.py"
+      - "9500"
+      - "{{ _phase_coverage_fixture_root }}"
+      - "{{ _archivematica_upgrade_es6_dir }}"
+  async: 86400
+  poll: 0
+  changed_when: false
+
+- name: "Verify validate-before-services rejects running temporary ES6"
+  block:
+    - name: "Run validate-before-services with temporary ES6 running"
+      ansible.builtin.include_tasks: "run-migration-file.yml"
+      vars:
+        _phase_coverage_migration_file: "validate-before-services"
+
+    - name: "Fail when validate-before-services accepts running temporary ES6"
+      ansible.builtin.fail:
+        msg: "validate-before-services accepted running temporary ES6"
+  rescue:
+    - name: "Require running temporary ES6 validation failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+
+- name: "Verify cleanup rejects running temporary ES6"
+  block:
+    - name: "Run cleanup hook with temporary ES6 running"
+      ansible.builtin.include_tasks: "run-migration-file.yml"
+      vars:
+        _phase_coverage_migration_file: "cleanup"
+
+    - name: "Fail when cleanup accepts running temporary ES6"
+      ansible.builtin.fail:
+        msg: "cleanup accepted running temporary ES6"
+  rescue:
+    - name: "Require running temporary ES6 cleanup failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+
+- name: "Stop temporary Elasticsearch fixture"
+  ansible.builtin.shell: |
+    set -o errexit -o nounset -o pipefail
+    pkill -f "{{ _phase_coverage_fixture_root }}/[p]hase_fixture_http.py 9500" || true
+  args:
+    executable: "/bin/bash"
+  changed_when: false
+
+- name: "Enable destination count mismatch for validate hook"
+  ansible.builtin.copy:
+    content: ""
+    dest: "{{ _phase_coverage_fixture_root }}/destination-mismatch"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+
+- name: "Verify validate hook rejects destination count mismatch"
+  block:
+    - name: "Run validate hook with mismatched destination counts"
+      ansible.builtin.include_tasks: "run-migration-file.yml"
+      vars:
+        _phase_coverage_migration_file: "validate"
+
+    - name: "Fail when validate hook accepts mismatched counts"
+      ansible.builtin.fail:
+        msg: "validate hook accepted mismatched counts"
+  rescue:
+    - name: "Require destination count mismatch validation failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'do not match' in (ansible_failed_result.msg | default(''))"
+
+- name: "Create temporary Elasticsearch files for cleanup removal"
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: "{{ item.state }}"
+    owner: "root"
+    group: "root"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ _archivematica_upgrade_es6_dir }}"
+      state: "directory"
+      mode: "0755"
+    - path: "{{ _archivematica_upgrade_es6_download }}"
+      state: "touch"
+      mode: "0640"
+
+- name: "Run cleanup hook after temporary ES6 is stopped"
+  ansible.builtin.include_tasks: "run-migration-file.yml"
+  vars:
+    _phase_coverage_migration_file: "cleanup"

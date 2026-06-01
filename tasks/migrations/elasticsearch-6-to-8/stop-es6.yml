@@ -1,0 +1,52 @@
+---
+- name: "Stop temporary Elasticsearch 6"
+  ansible.builtin.shell: |
+    set -o errexit -o nounset -o pipefail
+    if [ ! -f '{{ _archivematica_upgrade_es6_pidfile }}' ]; then
+      echo "already-stopped"
+      exit 0
+    fi
+    pid="$(cat '{{ _archivematica_upgrade_es6_pidfile }}')"
+    if kill -0 "$pid" 2>/dev/null; then
+      command_line=""
+      for attempt in 1 2 3; do
+        command_line="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"
+        if [ -n "$command_line" ] || ! kill -0 "$pid" 2>/dev/null; then
+          break
+        fi
+        sleep 1
+      done
+      case "$command_line" in
+        *"{{ _archivematica_upgrade_es6_dir }}"*)
+          kill "$pid"
+          echo "stopped"
+          ;;
+        "")
+          if kill -0 "$pid" 2>/dev/null; then
+            echo "Refusing to stop process $pid because its command line could not be read" >&2
+            exit 1
+          fi
+          echo "stale-pidfile"
+          ;;
+        *)
+          echo "Refusing to stop unrelated process $pid from the temporary Elasticsearch PID file" >&2
+          exit 1
+          ;;
+      esac
+    else
+      echo "stale-pidfile"
+    fi
+    rm -f '{{ _archivematica_upgrade_es6_pidfile }}'
+  args:
+    executable: "/bin/bash"
+  become: true
+  become_user: "{{ _archivematica_upgrade_es6_user }}"
+  register: "_archivematica_upgrade_es6_stop"
+  changed_when: "'stopped' in (_archivematica_upgrade_es6_stop.stdout_lines | default([]))"
+
+- name: "Wait for temporary Elasticsearch 6 to stop"
+  ansible.builtin.wait_for:
+    host: "127.0.0.1"
+    port: "{{ _archivematica_upgrade_es6_port }}"
+    state: "stopped"
+    timeout: 60

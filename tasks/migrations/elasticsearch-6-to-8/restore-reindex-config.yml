@@ -1,0 +1,26 @@
+---
+- name: "Restore Elasticsearch 8 configuration after reindexing"
+  ansible.builtin.copy:
+    content: "{{ _archivematica_upgrade_es8_config_before_reindex.content | b64decode }}"
+    dest: "/etc/elasticsearch/elasticsearch.yml"
+    owner: "elasticsearch"
+    group: "elasticsearch"
+    mode: "0644"
+  register: "_archivematica_upgrade_restored_es8_config"
+
+- name: "Restart Elasticsearch 8 after restoring its configuration"  # noqa no-handler
+  ansible.builtin.service:
+    name: "elasticsearch"
+    state: "restarted"
+  when: _archivematica_upgrade_restored_es8_config.changed
+
+- name: "Wait for Elasticsearch 8 after restoring its configuration"
+  ansible.builtin.uri:
+    url: "{{ _archivematica_upgrade_destination_es_url }}/_cluster/health?wait_for_status=yellow&timeout=60s"
+    return_content: true
+  register: "_archivematica_upgrade_es8_health_after_config_restore"
+  until:
+    - _archivematica_upgrade_es8_health_after_config_restore.status == 200
+    - not (_archivematica_upgrade_es8_health_after_config_restore.json.timed_out | default(false) | bool)
+  retries: 12
+  delay: 5

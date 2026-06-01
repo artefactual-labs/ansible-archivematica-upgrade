@@ -1,0 +1,4 @@
+---
+- import_playbook: "../shared/phase_coverage/converge.yml"
+  vars:
+    phase_coverage_case: "phase-restore-success"

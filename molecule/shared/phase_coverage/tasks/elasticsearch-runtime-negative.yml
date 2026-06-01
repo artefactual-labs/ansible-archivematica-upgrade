@@ -1,0 +1,140 @@
+---
+- name: "Seed prepared state for runtime checks"
+  ansible.builtin.include_tasks: "seed-prepared-state.yml"
+
+- name: "Load prepared state for runtime checks"
+  ansible.builtin.include_tasks: "load-state.yml"
+
+- name: "Create preserved Elasticsearch data for runtime success branch"
+  ansible.builtin.file:
+    path: "{{ _archivematica_upgrade_preserved_es_data_dir }}"
+    state: "directory"
+    owner: "root"
+    group: "root"
+    mode: "0755"
+
+- name: "Run prepare-es6-runtime with Java auto-discovery"
+  ansible.builtin.include_tasks: "run-migration-file.yml"
+  vars:
+    _phase_coverage_migration_file: "prepare-es6-runtime"
+    archivematica_upgrade_java_11_home: ""
+
+- name: "Remove temporary runtime before public-download branch"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: "absent"
+  loop:
+    - "{{ _archivematica_upgrade_es6_dir }}"
+    - "{{ _archivematica_upgrade_es6_download }}"
+
+- name: "Verify public archive branch is reachable without network dependency"
+  environment:
+    https_proxy: "http://127.0.0.1:9"
+  block:
+    - name: "Run prepare-es6-runtime with public archive defaults"
+      ansible.builtin.include_tasks: "run-migration-file.yml"
+      vars:
+        _phase_coverage_migration_file: "prepare-es6-runtime"
+        archivematica_upgrade_es6_archive_url: ""
+        archivematica_upgrade_es6_checksum: ""
+
+    - name: "Fail when public archive branch unexpectedly succeeds"
+      ansible.builtin.fail:
+        msg: "public archive branch unexpectedly succeeded"
+  rescue:
+    - name: "Require public archive branch failure after report"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+
+- name: "Create wrong Java home fixture directory"
+  ansible.builtin.file:
+    path: "{{ _phase_coverage_fixture_root }}/bad-java/bin"
+    state: "directory"
+    owner: "root"
+    group: "root"
+    mode: "0755"
+
+- name: "Create wrong Java home fixture"
+  ansible.builtin.copy:
+    dest: "{{ _phase_coverage_fixture_root }}/bad-java/bin/java"
+    content: |
+      #!/bin/sh
+      printf 'openjdk version "17.0.0"\n' >&2
+    owner: "root"
+    group: "root"
+    mode: "0755"
+
+- name: "Verify prepare-es6-runtime rejects wrong Java version"
+  block:
+    - name: "Run prepare-es6-runtime with wrong Java version"
+      ansible.builtin.include_tasks: "run-migration-file.yml"
+      vars:
+        _phase_coverage_migration_file: "prepare-es6-runtime"
+        archivematica_upgrade_java_11_home: "{{ _phase_coverage_fixture_root }}/bad-java"
+
+    - name: "Fail when prepare-es6-runtime accepts wrong Java"
+      ansible.builtin.fail:
+        msg: "prepare-es6-runtime accepted wrong Java"
+  rescue:
+    - name: "Require wrong Java version failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'Java 11' in (ansible_failed_result.msg | default(''))"
+
+- name: "Remove preserved Elasticsearch data for missing data guardrail"
+  ansible.builtin.file:
+    path: "{{ _archivematica_upgrade_preserved_es_data_dir }}"
+    state: "absent"
+
+- name: "Verify prepare-es6-runtime rejects missing preserved data"
+  block:
+    - name: "Run prepare-es6-runtime without preserved data"
+      ansible.builtin.include_tasks: "run-migration-file.yml"
+      vars:
+        _phase_coverage_migration_file: "prepare-es6-runtime"
+
+    - name: "Fail when prepare-es6-runtime accepts missing preserved data"
+      ansible.builtin.fail:
+        msg: "prepare-es6-runtime accepted missing preserved data"
+  rescue:
+    - name: "Require missing preserved data failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'preserved packaged Elasticsearch 6 data directory' in (ansible_failed_result.msg | default(''))"
+
+- name: "Start temporary Elasticsearch fixture for already-running branch"
+  ansible.builtin.command:
+    argv:
+      - "{{ _phase_coverage_fixture_root }}/phase_fixture_http.py"
+      - "9500"
+      - "{{ _phase_coverage_fixture_root }}"
+      - "{{ _archivematica_upgrade_es6_dir }}"
+  async: 86400
+  poll: 0
+  changed_when: false
+
+- name: "Run ensure-es6 with already-running temporary node"
+  ansible.builtin.include_tasks: "run-migration-file.yml"
+  vars:
+    _phase_coverage_migration_file: "ensure-es6"
+
+- name: "Stop manually-started temporary fixture"
+  ansible.builtin.shell: |
+    set -o errexit -o nounset -o pipefail
+    pkill -f "{{ _phase_coverage_fixture_root }}/[p]hase_fixture_http.py 9500" || true
+  args:
+    executable: "/bin/bash"
+  changed_when: false
+
+- name: "Remove temporary Elasticsearch pidfile for already-stopped branch"
+  ansible.builtin.file:
+    path: "{{ _archivematica_upgrade_es6_pidfile }}"
+    state: "absent"
+
+- name: "Run stop-es6 with no pidfile"
+  ansible.builtin.include_tasks: "run-migration-file.yml"
+  vars:
+    _phase_coverage_migration_file: "stop-es6"

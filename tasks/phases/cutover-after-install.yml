@@ -1,0 +1,26 @@
+---
+- name: "Load common Archivematica upgrade values"
+  ansible.builtin.include_tasks: "common/load-context.yml"
+
+- name: "Load prepared Archivematica upgrade state"
+  ansible.builtin.include_tasks: "common/load-state.yml"
+
+- name: "Stop Archivematica application services during migration"
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: "stopped"
+  loop: "{{ _archivematica_upgrade_application_services }}"
+
+- name: "Run cutover-after-install hooks for active migrations"
+  ansible.builtin.include_tasks: "common/run-migration-hooks.yml"
+  vars:
+    _archivematica_upgrade_hook_phase: "cutover-after-install"
+
+- name: "Record completed cutover"
+  ansible.builtin.copy:
+    content: "{{ ansible_date_time.iso8601 }}\n"
+    dest: "{{ _archivematica_upgrade_checkpoint_dir }}/cutover"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+    force: false

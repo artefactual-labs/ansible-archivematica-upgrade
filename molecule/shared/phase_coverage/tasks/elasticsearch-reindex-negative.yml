@@ -1,0 +1,316 @@
+---
+- name: "Seed prepared state for reindex checks"
+  ansible.builtin.include_tasks: "seed-prepared-state.yml"
+
+- name: "Load prepared state for reindex checks"
+  ansible.builtin.include_tasks: "load-state.yml"
+
+- name: "Simulate Elasticsearch 8 installer handoff for reindex checks"
+  ansible.builtin.include_tasks: "simulate-installer-handoff.yml"
+
+- name: "Start temporary Elasticsearch fixture for reindex checks"
+  ansible.builtin.command:
+    argv:
+      - "{{ _phase_coverage_fixture_root }}/phase_fixture_http.py"
+      - "9500"
+      - "{{ _phase_coverage_fixture_root }}"
+      - "{{ _archivematica_upgrade_es6_dir }}"
+  async: 86400
+  poll: 0
+  changed_when: false
+
+- name: "Enable missing destination index marker"
+  ansible.builtin.copy:
+    content: ""
+    dest: "{{ _phase_coverage_fixture_root }}/missing-index"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+
+- name: "Verify reindex rejects missing destination indices"
+  block:
+    - name: "Run perform-reindex with missing destination index"
+      ansible.builtin.include_tasks: "run-migration-file.yml"
+      vars:
+        _phase_coverage_migration_file: "perform-reindex"
+
+    - name: "Fail when reindex accepts missing destination index"
+      ansible.builtin.fail:
+        msg: "perform-reindex accepted missing destination index"
+  rescue:
+    - name: "Require missing destination index failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'destination' in (ansible_failed_result.msg | default(''))"
+
+- name: "Reset reindex fixture markers and state"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: "absent"
+  loop:
+    - "{{ _phase_coverage_fixture_root }}/missing-index"
+    - "{{ _phase_coverage_fixture_root }}/destination-counts.json"
+    - "{{ _archivematica_upgrade_reindex_task_ids_file }}"
+
+- name: "Enable non-empty destination index marker"
+  ansible.builtin.copy:
+    content: ""
+    dest: "{{ _phase_coverage_fixture_root }}/destination-nonempty"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+
+- name: "Verify reindex rejects non-empty destination indices"
+  block:
+    - name: "Run perform-reindex with non-empty destination index"
+      ansible.builtin.include_tasks: "run-migration-file.yml"
+      vars:
+        _phase_coverage_migration_file: "perform-reindex"
+
+    - name: "Fail when reindex accepts non-empty destination index"
+      ansible.builtin.fail:
+        msg: "perform-reindex accepted non-empty destination index"
+  rescue:
+    - name: "Require non-empty destination index failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'must be empty' in (ansible_failed_result.msg | default(''))"
+
+- name: "Reset non-empty marker"
+  ansible.builtin.file:
+    path: "{{ _phase_coverage_fixture_root }}/destination-nonempty"
+    state: "absent"
+
+- name: "Write invalid persisted reindex task IDs"
+  ansible.builtin.copy:
+    content: '{"unexpected": 1}'
+    dest: "{{ _archivematica_upgrade_reindex_task_ids_file }}"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+
+- name: "Verify reindex rejects invalid persisted task IDs"
+  block:
+    - name: "Run perform-reindex with invalid persisted task IDs"
+      ansible.builtin.include_tasks: "run-migration-file.yml"
+      vars:
+        _phase_coverage_migration_file: "perform-reindex"
+
+    - name: "Fail when reindex accepts invalid persisted task IDs"
+      ansible.builtin.fail:
+        msg: "perform-reindex accepted invalid task IDs"
+  rescue:
+    - name: "Require invalid task ID failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'task IDs are invalid' in (ansible_failed_result.msg | default(''))"
+
+- name: "Write obsolete persisted reindex task IDs"
+  ansible.builtin.copy:
+    content: '{"aips": "fixture:aips"}'
+    dest: "{{ _archivematica_upgrade_reindex_task_ids_file }}"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+
+- name: "Enable obsolete task marker"
+  ansible.builtin.copy:
+    content: ""
+    dest: "{{ _phase_coverage_fixture_root }}/obsolete-task"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+
+- name: "Verify reindex rejects obsolete persisted task IDs"
+  block:
+    - name: "Run perform-reindex with obsolete persisted task ID"
+      ansible.builtin.include_tasks: "run-migration-file.yml"
+      vars:
+        _phase_coverage_migration_file: "perform-reindex"
+
+    - name: "Fail when reindex accepts obsolete persisted task ID"
+      ansible.builtin.fail:
+        msg: "perform-reindex accepted obsolete task ID"
+  rescue:
+    - name: "Require obsolete task ID failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'no longer valid' in (ansible_failed_result.msg | default(''))"
+
+- name: "Reset obsolete task marker and task IDs"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: "absent"
+  loop:
+    - "{{ _phase_coverage_fixture_root }}/obsolete-task"
+    - "{{ _archivematica_upgrade_reindex_task_ids_file }}"
+    - "{{ _phase_coverage_fixture_root }}/destination-counts.json"
+
+- name: "Enable missing submitted task marker"
+  ansible.builtin.copy:
+    content: ""
+    dest: "{{ _phase_coverage_fixture_root }}/submit-missing-task"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+
+- name: "Verify reindex rejects submissions without task IDs"
+  block:
+    - name: "Run perform-reindex with missing submission task ID"
+      ansible.builtin.include_tasks: "run-migration-file.yml"
+      vars:
+        _phase_coverage_migration_file: "perform-reindex"
+
+    - name: "Fail when reindex accepts missing submission task ID"
+      ansible.builtin.fail:
+        msg: "perform-reindex accepted missing submission task ID"
+  rescue:
+    - name: "Require missing submission task ID failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'did not return' in (ansible_failed_result.msg | default(''))"
+
+- name: "Reset submit marker"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: "absent"
+  loop:
+    - "{{ _phase_coverage_fixture_root }}/submit-missing-task"
+    - "{{ _archivematica_upgrade_reindex_task_ids_file }}"
+    - "{{ _phase_coverage_fixture_root }}/destination-counts.json"
+
+- name: "Write task IDs for no-response poll branch"
+  ansible.builtin.copy:
+    content: '{"aips": "fixture:aips", "aipfiles": "fixture:aipfiles"}'
+    dest: "{{ _archivematica_upgrade_reindex_task_ids_file }}"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+
+- name: "Enable task-without-response marker"
+  ansible.builtin.copy:
+    content: ""
+    dest: "{{ _phase_coverage_fixture_root }}/task-no-response"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+
+- name: "Verify reindex rejects completed task without response"
+  block:
+    - name: "Run perform-reindex with completed task missing response"
+      ansible.builtin.include_tasks: "run-migration-file.yml"
+      vars:
+        _phase_coverage_migration_file: "perform-reindex"
+
+    - name: "Fail when reindex accepts completed task without response"
+      ansible.builtin.fail:
+        msg: "perform-reindex accepted missing task response"
+  rescue:
+    - name: "Require missing task response failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'did not return a completed response' in (ansible_failed_result.msg | default(''))"
+
+- name: "Reset task-no-response marker"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: "absent"
+  loop:
+    - "{{ _phase_coverage_fixture_root }}/task-no-response"
+    - "{{ _archivematica_upgrade_reindex_task_ids_file }}"
+    - "{{ _phase_coverage_fixture_root }}/destination-counts.json"
+
+- name: "Enable reindex failure marker"
+  ansible.builtin.copy:
+    content: ""
+    dest: "{{ _phase_coverage_fixture_root }}/reindex-failure"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+
+- name: "Verify reindex rejects failed Elasticsearch responses"
+  block:
+    - name: "Run perform-reindex with failed response"
+      ansible.builtin.include_tasks: "run-migration-file.yml"
+      vars:
+        _phase_coverage_migration_file: "perform-reindex"
+
+    - name: "Fail when reindex accepts failed response"
+      ansible.builtin.fail:
+        msg: "perform-reindex accepted failed response"
+  rescue:
+    - name: "Require failed response failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'failed or timed-out' in (ansible_failed_result.msg | default(''))"
+
+- name: "Reset reindex failure marker"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: "absent"
+  loop:
+    - "{{ _phase_coverage_fixture_root }}/reindex-failure"
+    - "{{ _archivematica_upgrade_reindex_task_ids_file }}"
+    - "{{ _phase_coverage_fixture_root }}/destination-counts.json"
+
+- name: "Enable destination mismatch marker"
+  ansible.builtin.copy:
+    content: ""
+    dest: "{{ _phase_coverage_fixture_root }}/destination-mismatch"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+
+- name: "Verify reindex rejects destination count mismatches"
+  block:
+    - name: "Run perform-reindex with destination count mismatch"
+      ansible.builtin.include_tasks: "run-migration-file.yml"
+      vars:
+        _phase_coverage_migration_file: "perform-reindex"
+
+    - name: "Fail when reindex accepts destination count mismatch"
+      ansible.builtin.fail:
+        msg: "perform-reindex accepted destination count mismatch"
+  rescue:
+    - name: "Require destination count mismatch failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'do not match' in (ansible_failed_result.msg | default(''))"
+
+- name: "Reset destination mismatch marker"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: "absent"
+  loop:
+    - "{{ _phase_coverage_fixture_root }}/destination-mismatch"
+    - "{{ _archivematica_upgrade_reindex_task_ids_file }}"
+    - "{{ _phase_coverage_fixture_root }}/destination-counts.json"
+
+- name: "Write valid persisted reindex task IDs"
+  ansible.builtin.copy:
+    content: '{"aips": "fixture:aips", "aipfiles": "fixture:aipfiles"}'
+    dest: "{{ _archivematica_upgrade_reindex_task_ids_file }}"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+
+- name: "Enable destination source counts marker"
+  ansible.builtin.copy:
+    content: ""
+    dest: "{{ _phase_coverage_fixture_root }}/destination-source-counts"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+
+- name: "Run perform-reindex with valid persisted task IDs"
+  ansible.builtin.include_tasks: "run-migration-file.yml"
+  vars:
+    _phase_coverage_migration_file: "perform-reindex"

@@ -1,0 +1,27 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff
+        entry: uv run --python 3.12 --no-project --with ruff==0.15.0 ruff check --fix
+        language: system
+        types: [python]
+      - id: ruff-format
+        name: ruff-format
+        entry: uv run --python 3.12 --no-project --with ruff==0.15.0 ruff format
+        language: system
+        types: [python]
+      - id: ansible-lint
+        name: ansible-lint
+        entry: make lint-all
+        language: system
+        pass_filenames: false
+      - id: mypy
+        name: mypy
+        entry: uv run --python 3.12 --no-project --with mypy==1.19.1 --with types-PyYAML==6.0.12.20260518 mypy
+        language: system
+        types: [python]
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.47.0
+    hooks:
+      - id: markdownlint

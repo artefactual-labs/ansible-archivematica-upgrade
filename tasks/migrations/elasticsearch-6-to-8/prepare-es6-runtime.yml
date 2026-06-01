@@ -1,0 +1,176 @@
+---
+- name: "Install Java 11 for the temporary Elasticsearch 6 node"
+  ansible.builtin.package:
+    name: >-
+      {{
+        ['openjdk-11-jdk']
+        if ansible_distribution == 'Ubuntu'
+        else ['java-11-openjdk', 'java-11-openjdk-devel']
+      }}
+    state: "present"
+
+- name: "Find the Java 11 home directory"
+  ansible.builtin.shell: >-
+    set -o pipefail &&
+    find /usr/lib/jvm -path '*java-11*' -type f -path '*/bin/java' |
+    head -n 1 |
+    xargs -r readlink -f |
+    xargs -r dirname |
+    xargs -r dirname
+  args:
+    executable: "/bin/bash"
+  register: "_archivematica_upgrade_java_11_home_result"
+  changed_when: false
+  when: archivematica_upgrade_java_11_home | default('') | trim | length == 0
+
+- name: "Select the Java 11 home directory"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_selected_java_11_home: >-
+      {{
+        (archivematica_upgrade_java_11_home | default('') | trim)
+        if (archivematica_upgrade_java_11_home | default('') | trim | length > 0)
+        else (_archivematica_upgrade_java_11_home_result.stdout | default('') | trim)
+      }}
+
+- name: "Inspect the Java 11 executable"
+  ansible.builtin.stat:
+    path: "{{ _archivematica_upgrade_selected_java_11_home }}/bin/java"
+    follow: true
+  register: "_archivematica_upgrade_java_11_executable"
+
+- name: "Require a Java 11 home directory"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_selected_java_11_home is match('^/[A-Za-z0-9._/-]+$')
+      - _archivematica_upgrade_java_11_executable.stat.isreg | default(false)
+      - _archivematica_upgrade_java_11_executable.stat.executable | default(false)
+    fail_msg: >-
+      Unable to locate the Java 11 home directory required by the temporary
+      Elasticsearch 6 node. Set archivematica_upgrade_java_11_home to a Java 11
+      home directory containing an executable bin/java file.
+
+- name: "Read the selected Java version"
+  ansible.builtin.command:
+    argv:
+      - "{{ _archivematica_upgrade_selected_java_11_home }}/bin/java"
+      - "-version"
+  register: "_archivematica_upgrade_java_11_version"
+  changed_when: false
+
+- name: "Require the selected Java major version to be 11"
+  ansible.builtin.assert:
+    that:
+      - >-
+        (
+          _archivematica_upgrade_java_11_version.stdout ~
+          _archivematica_upgrade_java_11_version.stderr
+        ) is search('version "(1\\.)?11[."]')
+    fail_msg: >-
+      The selected Java home does not provide Java 11. Set
+      archivematica_upgrade_java_11_home to a Java 11 home directory.
+
+- name: "Store the Java 11 home directory"
+  ansible.builtin.copy:
+    content: "{{ _archivematica_upgrade_selected_java_11_home }}\n"
+    dest: "{{ _archivematica_upgrade_java_home_file }}"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+    force: false
+
+- name: "Set selected Java 11 home for the temporary Elasticsearch 6 node"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_java_11_home: "{{ _archivematica_upgrade_selected_java_11_home }}"
+
+- name: "Report the public Elasticsearch archive download"
+  ansible.builtin.debug:
+    msg: >-
+      archivematica_upgrade_es6_archive_url is not set. Downloading the
+      temporary Elasticsearch archive and checksum from artifacts.elastic.co.
+      Set an internal archive URL and checksum in restricted-network
+      environments.
+  when: archivematica_upgrade_es6_archive_url | length == 0
+
+- name: "Download Elasticsearch {{ _archivematica_upgrade_source_es_version }}"
+  ansible.builtin.get_url:
+    url: >-
+      {{
+        archivematica_upgrade_es6_archive_url |
+        default(
+          'https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-' ~
+          _archivematica_upgrade_source_es_version ~
+          '.tar.gz',
+          true
+        )
+      }}
+    dest: "{{ _archivematica_upgrade_es6_download }}"
+    checksum: >-
+      {{
+        archivematica_upgrade_es6_checksum |
+        default(
+          'sha512:https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-' ~
+          _archivematica_upgrade_source_es_version ~
+          '.tar.gz.sha512',
+          true
+        )
+      }}
+    owner: "root"
+    group: "root"
+    mode: "0640"
+
+- name: "Extract temporary Elasticsearch 6"
+  ansible.builtin.unarchive:
+    src: "{{ _archivematica_upgrade_es6_download }}"
+    dest: "{{ _archivematica_upgrade_path }}"
+    remote_src: true
+    creates: "{{ _archivematica_upgrade_es6_dir }}/bin/elasticsearch"
+
+- name: "Inspect preserved packaged Elasticsearch 6 data"
+  ansible.builtin.stat:
+    path: "{{ _archivematica_upgrade_preserved_es_data_dir }}"
+  register: "_archivematica_upgrade_preserved_es6_data"
+
+- name: "Require preserved packaged Elasticsearch 6 data"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_preserved_es6_data.stat.isdir | default(false)
+    fail_msg: >-
+      The preserved packaged Elasticsearch 6 data directory
+      {{ _archivematica_upgrade_preserved_es_data_dir }} is missing. Run the
+      cutover-before-install phase successfully before migration.
+
+- name: "Copy preserved Elasticsearch 6 data into the temporary node"
+  ansible.builtin.shell: |
+    set -o errexit -o nounset -o pipefail
+    rm -rf '{{ _archivematica_upgrade_es6_dir }}/data.tmp'
+    mkdir '{{ _archivematica_upgrade_es6_dir }}/data.tmp'
+    cp --archive \
+      '{{ _archivematica_upgrade_preserved_es_data_dir }}/.' \
+      '{{ _archivematica_upgrade_es6_dir }}/data.tmp/'
+    rm -rf '{{ _archivematica_upgrade_es6_dir }}/data'
+    mv \
+      '{{ _archivematica_upgrade_es6_dir }}/data.tmp' \
+      '{{ _archivematica_upgrade_es6_dir }}/data'
+    touch '{{ _archivematica_upgrade_es6_dir }}/.archivematica-source-data-copied'
+  args:
+    executable: "/bin/bash"
+    creates: "{{ _archivematica_upgrade_es6_dir }}/.archivematica-source-data-copied"
+  async: "{{ archivematica_upgrade_es_data_timeout | int }}"
+  poll: 10
+
+- name: "Allow the migration user to write temporary Elasticsearch 6 runtime paths"
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: "directory"
+    owner: "{{ _archivematica_upgrade_es6_user }}"
+    group: "{{ _archivematica_upgrade_es6_group }}"
+    recurse: "{{ item.recurse }}"
+  loop:
+    - path: "{{ _archivematica_upgrade_es6_dir }}"
+      recurse: false
+    - path: "{{ _archivematica_upgrade_es6_dir }}/config"
+      recurse: true
+    - path: "{{ _archivematica_upgrade_es6_dir }}/data"
+      recurse: true
+    - path: "{{ _archivematica_upgrade_es6_dir }}/logs"
+      recurse: true

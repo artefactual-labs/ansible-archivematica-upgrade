@@ -1,0 +1,36 @@
+---
+- name: "Run phase coverage scenario"
+  hosts: "all"
+  gather_facts: true
+  vars_files:
+    - "vars.yml"
+  module_defaults:
+    ansible.builtin.service:
+      use: "sysvinit"
+  environment:
+    PATH: "{{ _phase_coverage_fixture_bin }}:{{ ansible_env.PATH }}"
+  tasks:
+    - name: "Read temporary Elasticsearch archive checksum"
+      ansible.builtin.slurp:
+        src: "{{ _phase_coverage_es6_archive_checksum_file }}"
+      register: "_phase_coverage_es6_checksum_content"
+
+    - name: "Set temporary Elasticsearch archive checksum"
+      ansible.builtin.set_fact:
+        _phase_coverage_es6_checksum: >-
+          sha256:{{ _phase_coverage_es6_checksum_content.content | b64decode | trim }}
+
+    - name: "Use service command fixtures for phase coverage"
+      ansible.builtin.set_fact:
+        ansible_service_mgr: "service"
+
+    - name: "Run selected phase coverage case"
+      ansible.builtin.include_tasks: "tasks/{{ phase_coverage_case }}.yml"
+
+    - name: "Record phase coverage scenario completion"
+      ansible.builtin.copy:
+        content: "{{ phase_coverage_case }}\n"
+        dest: "{{ _phase_coverage_fixture_root }}/scenario-complete"
+        owner: "root"
+        group: "root"
+        mode: "0644"

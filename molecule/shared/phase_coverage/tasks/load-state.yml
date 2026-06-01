@@ -1,0 +1,7 @@
+---
+- name: "Load phase coverage prepared state"
+  ansible.builtin.include_role:
+    name: "{{ _phase_coverage_role_path }}"
+    tasks_from: "common/load-state.yml"
+  vars:
+    archivematica_upgrade_es6_checksum: "{{ _phase_coverage_es6_checksum }}"

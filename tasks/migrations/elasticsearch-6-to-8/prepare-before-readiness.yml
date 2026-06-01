@@ -1,0 +1,12 @@
+---
+- name: "Ensure packaged Elasticsearch 6 is running before repeated readiness checks"
+  ansible.builtin.service:
+    name: "elasticsearch"
+    state: "started"
+
+- name: "Wait for the packaged Elasticsearch 6 port before repeated readiness checks"
+  ansible.builtin.wait_for:
+    host: "127.0.0.1"
+    port: 9200
+    state: "started"
+    timeout: 60

@@ -1,0 +1,360 @@
+---
+- name: "Load common Archivematica upgrade values"
+  ansible.builtin.include_tasks: "common/load-context.yml"
+
+- name: "Require snapshot confirmation before preparing the upgrade"
+  ansible.builtin.assert:
+    that:
+      - archivematica_upgrade_snapshot_confirmed | default(false) | bool
+    fail_msg: "Confirm a VM or block-storage snapshot with archivematica_upgrade_snapshot_confirmed=true."
+
+- name: "Check whether the readiness check completed"
+  ansible.builtin.stat:
+    path: "{{ _archivematica_upgrade_checkpoint_dir }}/check-readiness"
+  register: "_archivematica_upgrade_check_readiness_checkpoint"
+
+- name: "Require completed readiness check"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_check_readiness_checkpoint.stat.exists
+    fail_msg: "Run the check-readiness phase successfully with the same archivematica_upgrade_id before preparing the upgrade."
+
+- name: "Check whether preparation already completed"
+  ansible.builtin.stat:
+    path: "{{ _archivematica_upgrade_checkpoint_dir }}/prepared"
+  register: "_archivematica_upgrade_prepared_checkpoint"
+
+- name: "Run prepare-before-readiness hooks for active migrations"
+  ansible.builtin.include_tasks: "common/run-migration-hooks.yml"
+  vars:
+    _archivematica_upgrade_hook_phase: "prepare-before-readiness"
+  when: not _archivematica_upgrade_prepared_checkpoint.stat.exists
+
+- name: "Repeat readiness checks immediately before first preparation"
+  ansible.builtin.include_tasks: "phases/check-readiness.yml"
+  when: not _archivematica_upgrade_prepared_checkpoint.stat.exists
+
+# This is the final idle check before service stoppage. On the first run,
+# readiness has just been repeated above, but this extra check keeps the
+# stop-and-backup boundary obvious and tight.
+- name: "Require an idle Archivematica pipeline"
+  ansible.builtin.include_tasks: "common/require-idle.yml"
+
+- name: "Refresh Archivematica apt repository key"
+  ansible.builtin.include_tasks: "common/refresh-archivematica-apt-key.yml"
+
+- name: "Create traversable Archivematica upgrade directories"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: "directory"
+    owner: "root"
+    group: "root"
+    mode: "0711"
+  loop:
+    - "{{ _archivematica_upgrade_root }}"
+    - "{{ _archivematica_upgrade_path }}"
+
+- name: "Create protected Archivematica upgrade directories"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: "directory"
+    owner: "root"
+    group: "root"
+    mode: "0750"
+  loop:
+    - "{{ _archivematica_upgrade_backup_dir }}"
+    - "{{ _archivematica_upgrade_checkpoint_dir }}"
+    - "{{ _archivematica_upgrade_state_dir }}"
+
+- name: "Require Storage Service API credentials before capturing source AIP counts"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_ss_api_url | length > 0
+      - archivematica_upgrade_ss_api_user | length > 0
+      - archivematica_upgrade_ss_api_key | length > 0
+    fail_msg: >-
+      Set the Storage Service API validation variables before running the
+      prepare phase so source AIP package counts can be recorded.
+  when: not _archivematica_upgrade_prepared_checkpoint.stat.exists
+
+- name: "Check whether source AIP storage stats were captured"
+  ansible.builtin.stat:
+    path: "{{ _archivematica_upgrade_source_aip_storage_stats_file }}"
+  register: "_archivematica_upgrade_source_aip_storage_stats_state"
+
+- name: "Capture source AIP storage stats before stopping services"
+  ansible.builtin.include_tasks: "common/capture-aip-storage-stats.yml"
+  vars:
+    _archivematica_upgrade_aip_storage_es_url: "{{ _archivematica_upgrade_source_es_url }}"
+    _archivematica_upgrade_aip_storage_output_file: "{{ _archivematica_upgrade_source_aip_storage_stats_file }}"
+    _archivematica_upgrade_capture_start_ss_api: true
+    _archivematica_upgrade_capture_force: false
+  when:
+    - not _archivematica_upgrade_prepared_checkpoint.stat.exists
+    - not _archivematica_upgrade_source_aip_storage_stats_state.stat.exists
+
+- name: "Check whether source application state was captured"
+  ansible.builtin.stat:
+    path: "{{ _archivematica_upgrade_source_application_state_file }}"
+  register: "_archivematica_upgrade_source_application_state_state"
+
+- name: "Capture source application state before stopping services"
+  ansible.builtin.include_tasks: "common/capture-application-state.yml"
+  vars:
+    _archivematica_upgrade_application_state_output_file: "{{ _archivematica_upgrade_source_application_state_file }}"
+    _archivematica_upgrade_capture_force: false
+  when:
+    - not _archivematica_upgrade_prepared_checkpoint.stat.exists
+    - not _archivematica_upgrade_source_application_state_state.stat.exists
+
+- name: "Prepare rollback backups and source state"
+  when: not _archivematica_upgrade_prepared_checkpoint.stat.exists
+  block:
+    - name: "Stop Archivematica application services"
+      ansible.builtin.service:
+        name: "{{ item }}"
+        state: "stopped"
+      loop: "{{ _archivematica_upgrade_application_services }}"
+
+    - name: "Run prepare hooks for active migrations"
+      ansible.builtin.include_tasks: "common/run-migration-hooks.yml"
+      vars:
+        _archivematica_upgrade_hook_phase: "prepare"
+
+    - name: "Inspect Elasticsearch filesystem backup directories"
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+      loop:
+        - name: "configuration"
+          path: "{{ _archivematica_upgrade_es_config_dir }}"
+        - name: "data"
+          path: "{{ _archivematica_upgrade_es_data_dir }}"
+        - name: "logs"
+          path: "{{ _archivematica_upgrade_es_log_dir }}"
+      loop_control:
+        label: "{{ item.path }}"
+      register: "_archivematica_upgrade_es_backup_directories"
+
+    - name: "Require Elasticsearch filesystem backup directories"
+      ansible.builtin.assert:
+        that:
+          - item.stat.isdir | default(false)
+        fail_msg: >-
+          Elasticsearch {{ item.item.name }} directory {{ item.item.path }} is
+          missing. The role requires a cold backup of the Elasticsearch
+          configuration, data, and log directories before upgrade.
+      loop: "{{ _archivematica_upgrade_es_backup_directories.results }}"
+      loop_control:
+        label: "{{ item.item.path }}"
+
+    - name: "Stop Elasticsearch before filesystem backup"
+      ansible.builtin.service:
+        name: "elasticsearch"
+        state: "stopped"
+
+    - name: "Back up Elasticsearch filesystem directories"
+      ansible.builtin.shell: |
+        set -o errexit -o nounset -o pipefail
+        rm -f {{ (item.archive ~ '.tmp') | quote }}
+        tar \
+          --create \
+          --gzip \
+          --file {{ (item.archive ~ '.tmp') | quote }} \
+          {{ item.path | quote }}
+        mv {{ (item.archive ~ '.tmp') | quote }} {{ item.archive | quote }}
+      args:
+        executable: "/bin/bash"
+        creates: "{{ item.archive }}"
+      async: "{{ archivematica_upgrade_es_data_timeout | int }}"
+      poll: 10
+      loop:
+        - name: "configuration"
+          path: "{{ _archivematica_upgrade_es_config_dir }}"
+          archive: "{{ _archivematica_upgrade_es_config_archive }}"
+        - name: "data"
+          path: "{{ _archivematica_upgrade_es_data_dir }}"
+          archive: "{{ _archivematica_upgrade_es_data_archive }}"
+        - name: "logs"
+          path: "{{ _archivematica_upgrade_es_log_dir }}"
+          archive: "{{ _archivematica_upgrade_es_log_archive }}"
+      loop_control:
+        label: "{{ item.path }}"
+
+    - name: "Back up the MCP database"
+      ansible.builtin.shell: |
+        set -o errexit -o nounset -o pipefail
+        rm -f '{{ _archivematica_upgrade_backup_dir }}/{{ archivematica_src_am_db_name }}.sql.gz.tmp'
+        mysqldump {{ _archivematica_upgrade_mysql_client_args | map('quote') | join(' ') }} \
+          --single-transaction --skip-lock-tables \
+          '{{ archivematica_src_am_db_name }}' |
+          gzip -c > '{{ _archivematica_upgrade_backup_dir }}/{{ archivematica_src_am_db_name }}.sql.gz.tmp'
+        mv \
+          '{{ _archivematica_upgrade_backup_dir }}/{{ archivematica_src_am_db_name }}.sql.gz.tmp' \
+          '{{ _archivematica_upgrade_backup_dir }}/{{ archivematica_src_am_db_name }}.sql.gz'
+      args:
+        executable: "/bin/bash"
+        creates: "{{ _archivematica_upgrade_backup_dir }}/{{ archivematica_src_am_db_name }}.sql.gz"
+      async: "{{ archivematica_upgrade_mysqldump_timeout | int }}"
+      poll: 10
+
+    - name: "Back up the MySQL Storage Service database"
+      ansible.builtin.shell: |
+        set -o errexit -o nounset -o pipefail
+        rm -f '{{ _archivematica_upgrade_backup_dir }}/{{ archivematica_src_ss_db_name }}.sql.gz.tmp'
+        mysqldump {{ _archivematica_upgrade_mysql_client_args | map('quote') | join(' ') }} \
+          --single-transaction --skip-lock-tables \
+          '{{ archivematica_src_ss_db_name }}' |
+          gzip -c > '{{ _archivematica_upgrade_backup_dir }}/{{ archivematica_src_ss_db_name }}.sql.gz.tmp'
+        mv \
+          '{{ _archivematica_upgrade_backup_dir }}/{{ archivematica_src_ss_db_name }}.sql.gz.tmp' \
+          '{{ _archivematica_upgrade_backup_dir }}/{{ archivematica_src_ss_db_name }}.sql.gz'
+      args:
+        executable: "/bin/bash"
+        creates: "{{ _archivematica_upgrade_backup_dir }}/{{ archivematica_src_ss_db_name }}.sql.gz"
+      async: "{{ archivematica_upgrade_mysqldump_timeout | int }}"
+      poll: 10
+      when: archivematica_src_ss_db_mysql_enabled | default(true) | bool
+
+    - name: "Back up the sqlite Storage Service database"
+      ansible.builtin.copy:
+        src: "/var/archivematica/storage-service/storage.db"
+        dest: "{{ _archivematica_upgrade_backup_dir }}/storage.db"
+        remote_src: true
+        owner: "root"
+        group: "root"
+        mode: "0640"
+        force: false
+      when: not (archivematica_src_ss_db_mysql_enabled | default(true) | bool)
+
+    - name: "Back up /etc"
+      ansible.builtin.shell: |
+        set -o errexit -o nounset -o pipefail
+        rm -f '{{ _archivematica_upgrade_backup_dir }}/etc-before-upgrade.tgz.tmp'
+        tar \
+          --create \
+          --gzip \
+          --file '{{ _archivematica_upgrade_backup_dir }}/etc-before-upgrade.tgz.tmp' \
+          /etc
+        mv \
+          '{{ _archivematica_upgrade_backup_dir }}/etc-before-upgrade.tgz.tmp' \
+          '{{ _archivematica_upgrade_backup_dir }}/etc-before-upgrade.tgz'
+      args:
+        executable: "/bin/bash"
+        creates: "{{ _archivematica_upgrade_backup_dir }}/etc-before-upgrade.tgz"
+
+    - name: "Back up Dashboard processing configuration files"
+      ansible.builtin.shell: |
+        set -o errexit -o nounset -o pipefail
+        rm -f {{ (_archivematica_upgrade_processing_config_archive ~ '.tmp') | quote }}
+        tar \
+          --create \
+          --gzip \
+          --file {{ (_archivematica_upgrade_processing_config_archive ~ '.tmp') | quote }} \
+          --directory {{ _archivematica_upgrade_processing_config_dir | quote }} \
+          .
+        mv \
+          {{ (_archivematica_upgrade_processing_config_archive ~ '.tmp') | quote }} \
+          {{ _archivematica_upgrade_processing_config_archive | quote }}
+      args:
+        executable: "/bin/bash"
+        creates: "{{ _archivematica_upgrade_processing_config_archive }}"
+
+    - name: "Run prepare-backup hooks for active migrations"
+      ansible.builtin.include_tasks: "common/run-migration-hooks.yml"
+      vars:
+        _archivematica_upgrade_hook_phase: "prepare-backup"
+
+    - name: "Set rollback backup manifest artifact names"
+      ansible.builtin.set_fact:
+        _archivematica_upgrade_backup_manifest_artifact_names: >-
+          {{
+            [
+              archivematica_src_am_db_name ~ '.sql.gz',
+              (
+                archivematica_src_ss_db_name ~ '.sql.gz'
+                if (
+                  archivematica_src_ss_db_mysql_enabled |
+                  default(true) |
+                  bool
+                )
+                else 'storage.db'
+              ),
+              'etc-before-upgrade.tgz',
+              _archivematica_upgrade_es_config_archive_artifact,
+              _archivematica_upgrade_es_data_archive_artifact,
+              _archivematica_upgrade_es_log_archive_artifact,
+              _archivematica_upgrade_processing_config_archive | basename
+            ] +
+            (
+              _archivematica_upgrade_migration_backup_manifest_artifact_names |
+              default([])
+            )
+          }}
+
+    - name: "Inspect rollback backup artifacts"
+      ansible.builtin.stat:
+        path: "{{ _archivematica_upgrade_backup_dir }}/{{ item }}"
+        checksum_algorithm: "sha256"
+      loop: "{{ _archivematica_upgrade_backup_manifest_artifact_names }}"
+      register: "_archivematica_upgrade_backup_manifest_artifact_states"
+
+    - name: "Require rollback backup artifacts before writing the manifest"
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+          - item.stat.isreg
+        fail_msg: "Expected rollback backup artifact {{ item.item }} before writing the backup manifest."
+      loop: "{{ _archivematica_upgrade_backup_manifest_artifact_states.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: "Initialize rollback backup manifest artifacts"
+      ansible.builtin.set_fact:
+        _archivematica_upgrade_backup_manifest_artifacts: {}
+
+    - name: "Collect rollback backup manifest artifacts"
+      ansible.builtin.set_fact:
+        _archivematica_upgrade_backup_manifest_artifacts: >-
+          {{
+            _archivematica_upgrade_backup_manifest_artifacts |
+            combine({
+              item.item: {
+                'sha256': item.stat.checksum,
+                'bytes': item.stat.size | int
+              }
+            })
+          }}
+      loop: "{{ _archivematica_upgrade_backup_manifest_artifact_states.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: "Write rollback backup manifest"
+      ansible.builtin.copy:
+        content: >-
+          {{
+            {
+              'upgrade_id': archivematica_upgrade_id,
+              'artifacts': _archivematica_upgrade_backup_manifest_artifacts
+            } |
+            combine(
+              _archivematica_upgrade_backup_manifest_extra_values |
+              default({})
+            ) |
+            to_nice_json
+          }}
+        dest: "{{ _archivematica_upgrade_backup_manifest_file }}"
+        owner: "root"
+        group: "root"
+        mode: "0640"
+
+- name: "Load prepared Archivematica upgrade state"
+  ansible.builtin.include_tasks: "common/load-state.yml"
+
+- name: "Record completed preparation"
+  ansible.builtin.copy:
+    content: "{{ ansible_date_time.iso8601 }}\n"
+    dest: "{{ _archivematica_upgrade_checkpoint_dir }}/prepared"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+    force: false

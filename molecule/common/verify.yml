@@ -1,0 +1,534 @@
+---
+- name: "Verify common task test host"
+  hosts: "all"
+  gather_facts: true
+  environment:
+    # Prefer fixture commands for mysql and gpg over real system binaries.
+    PATH: "/tmp/archivematica-upgrade-molecule/bin:{{ ansible_env.PATH }}"
+  vars_files:
+    - "vars.yml"
+  vars:
+    _molecule_common_apt_source_file: "/etc/apt/sources.list.d/archivematica-molecule.list"
+    _molecule_common_mysql_defaults_file: "{{ _molecule_common_fixture_root }}/mysql-defaults.cnf"
+    _molecule_common_negative_bin: "{{ _molecule_common_fixture_root }}/negative-bin"
+    _molecule_common_populated_bin: "{{ _molecule_common_fixture_root }}/populated-bin"
+    _molecule_common_populated_application_state_file: >-
+      {{ _molecule_common_fixture_root }}/populated-application-state.json
+    _molecule_common_retry_aip_storage_file: "{{ _molecule_common_fixture_root }}/retry-aip-storage-stats.json"
+    _molecule_common_retry_marker: "{{ _molecule_common_fixture_root }}/fail-ss-aip-count-once"
+    _molecule_common_service_units:
+      - "archivematica-dashboard"
+      - "archivematica-mcp-client"
+      - "archivematica-mcp-server"
+      - "archivematica-storage-service"
+      - "gearman-job-server"
+      - "nginx"
+  tasks:
+    - name: "Require supported Molecule platform"
+      ansible.builtin.assert:
+        that:
+          - >-
+            (
+              ansible_distribution == 'Ubuntu' and
+              ansible_distribution_version is match('^(22|24)[.]04')
+            ) or
+            (
+              ansible_distribution == 'Rocky' and
+              ansible_distribution_major_version | int == 9
+            )
+        fail_msg: >-
+          The common task Molecule scenario supports Ubuntu 22.04,
+          Ubuntu 24.04, and Rocky Linux 9.
+
+    - name: "Run common load context tasks for verification"
+      ansible.builtin.include_role:
+        name: "{{ _molecule_common_role_path }}"
+        tasks_from: "common/load-context.yml"
+
+    - name: "Run common load state tasks for verification"
+      ansible.builtin.include_role:
+        name: "{{ _molecule_common_role_path }}"
+        tasks_from: "common/load-state.yml"
+
+    - name: "Require normalized common facts"
+      ansible.builtin.assert:
+        that:
+          - _archivematica_upgrade_path == archivematica_upgrade_root ~ '/' ~ archivematica_upgrade_id
+          - _archivematica_upgrade_processing_config_dir == archivematica_upgrade_processing_config_dir
+          - >-
+            (_archivematica_upgrade_installed_common_local_services | sort) ==
+            (archivematica_upgrade_common_local_services | sort)
+          - >-
+            (_archivematica_upgrade_application_services | sort) ==
+            ((archivematica_upgrade_application_services + archivematica_upgrade_common_local_services) | unique | sort)
+          - _archivematica_upgrade_source_aip_storage_stats.archival_storage == {}
+          - _archivematica_upgrade_source_aip_storage_stats.storage_service == {}
+          - _archivematica_upgrade_source_application_state.dashboard == {}
+          - _archivematica_upgrade_source_application_state.storage_service == {}
+
+    - name: "Require Elasticsearch migration hook state"
+      ansible.builtin.assert:
+        that:
+          - _archivematica_upgrade_has_es6_to_8_migration | bool
+          - _archivematica_upgrade_es_migration_state_dir == _archivematica_upgrade_state_dir ~ '/migrations/elasticsearch-6-to-8'
+          - _archivematica_upgrade_source_es_version == '6.8.23'
+          - _archivematica_upgrade_source_index_counts.aips | int == 3
+          - _archivematica_upgrade_source_index_counts.aipfiles | int == 6
+          - _archivematica_upgrade_source_index_counts.transfers | int == 0
+          - _archivematica_upgrade_source_index_counts.transferfiles | int == 0
+          - _archivematica_upgrade_java_11_home == '/usr/lib/jvm/java-11-openjdk-amd64'
+
+    - name: "Create optional MySQL defaults fixture"
+      ansible.builtin.copy:
+        content: |
+          [client]
+          user=molecule
+        dest: "{{ _molecule_common_mysql_defaults_file }}"
+        owner: "root"
+        group: "root"
+        mode: "0600"
+
+    - name: "Run load context with optional defaults and numbered clients"
+      ansible.builtin.include_role:
+        name: "{{ _molecule_common_role_path }}"
+        tasks_from: "common/load-context.yml"
+      vars:
+        archivematica_upgrade_mysql_defaults_extra_file: "{{ _molecule_common_mysql_defaults_file }}"
+        archivematica_src_am_mcpclient_instances: 2
+
+    - name: "Require optional defaults and numbered client facts"
+      ansible.builtin.assert:
+        that:
+          - >-
+            ('--defaults-extra-file=' ~ _molecule_common_mysql_defaults_file)
+            in _archivematica_upgrade_mysql_client_args
+          - >-
+            (_archivematica_upgrade_mcp_client_services | sort) ==
+            (['archivematica-mcp-client-1', 'archivematica-mcp-client-2'] | sort)
+          - "'archivematica-mcp-client-1' in _archivematica_upgrade_application_services"
+          - "'archivematica-mcp-client-2' in _archivematica_upgrade_application_services"
+
+    - name: "Run common idle requirement tasks for verification"
+      ansible.builtin.include_role:
+        name: "{{ _molecule_common_role_path }}"
+        tasks_from: "common/require-idle.yml"
+
+    - name: "Require idle fixture checks passed"
+      ansible.builtin.assert:
+        that:
+          - _archivematica_upgrade_active_jobs.stdout | int == 0
+          - _archivematica_upgrade_currently_processing.matched | int == 0
+          - _archivematica_upgrade_watched_directories.matched | int == 0
+
+    - name: "Inspect generated common artifact files"
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+      loop:
+        - path: "{{ _archivematica_upgrade_destination_aip_storage_stats_file }}"
+          mode: "0640"
+        - path: "{{ _archivematica_upgrade_destination_application_state_file }}"
+          mode: "0640"
+        - path: "{{ archivematica_upgrade_archivematica_apt_keyring_path }}"
+          mode: "0644"
+      loop_control:
+        label: "{{ item.path }}"
+      register: "_molecule_common_artifact_stats"
+
+    - name: "Require generated common artifact modes"
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+          - item.stat.pw_name == 'root'
+          - item.stat.gr_name == 'root'
+          - item.stat.mode == item.item.mode
+      loop: "{{ _molecule_common_artifact_stats.results }}"
+      loop_control:
+        label: "{{ item.item.path }}"
+
+    - name: "Inspect service unit fixture modes"
+      ansible.builtin.stat:
+        path: "/etc/systemd/system/{{ item }}.service"
+      loop: "{{ _molecule_common_service_units }}"
+      register: "_molecule_common_service_unit_stats"
+
+    - name: "Require service unit fixture modes"
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+          - item.stat.pw_name == 'root'
+          - item.stat.gr_name == 'root'
+          - item.stat.mode == '0644'
+      loop: "{{ _molecule_common_service_unit_stats.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: "Read generated AIP storage state"
+      ansible.builtin.slurp:
+        src: "{{ _archivematica_upgrade_destination_aip_storage_stats_file }}"
+      register: "_molecule_common_aip_storage_state_content"
+
+    - name: "Read generated application state"
+      ansible.builtin.slurp:
+        src: "{{ _archivematica_upgrade_destination_application_state_file }}"
+      register: "_molecule_common_application_state_content"
+
+    - name: "Read generated apt keyring"
+      ansible.builtin.slurp:
+        src: "{{ archivematica_upgrade_archivematica_apt_keyring_path }}"
+      register: "_molecule_common_apt_keyring_content"
+      when: ansible_distribution == "Ubuntu"
+
+    - name: "Load generated JSON state"
+      ansible.builtin.set_fact:
+        _molecule_common_aip_storage_state: >-
+          {{ _molecule_common_aip_storage_state_content.content | b64decode | from_json }}
+        _molecule_common_application_state: >-
+          {{ _molecule_common_application_state_content.content | b64decode | from_json }}
+
+    - name: "Require generated AIP storage state"
+      ansible.builtin.assert:
+        that:
+          - _molecule_common_aip_storage_state.archival_storage.aip_count | int == 3
+          - _molecule_common_aip_storage_state.archival_storage.aip_file_count | int == 6
+          - _molecule_common_aip_storage_state.archival_storage.aip_total_size_mb | float == 42.0
+          - _molecule_common_aip_storage_state.storage_service.aip_count | int == 3
+          - _molecule_common_aip_storage_state.storage_service.aip_counts_by_status['UPLOADED'] | int == 2
+          - _molecule_common_aip_storage_state.storage_service.aip_counts_by_status['DEL_REQ'] | int == 1
+
+    - name: "Require generated application state"
+      ansible.builtin.assert:
+        that:
+          - _molecule_common_application_state.dashboard.processing_configurations == ['default']
+          - _molecule_common_application_state.dashboard.system_users == []
+          - not (_molecule_common_application_state.dashboard.atom_configuration.password_configured | bool)
+          - not (_molecule_common_application_state.dashboard.atom_configuration.key_configured | bool)
+          - _molecule_common_application_state.storage_service.pipelines == []
+          - _molecule_common_application_state.storage_service.spaces == []
+          - _molecule_common_application_state.storage_service.locations == []
+          - _molecule_common_application_state.storage_service.system_users == []
+
+    - name: "Create Storage Service retry marker"
+      ansible.builtin.copy:
+        content: ""
+        dest: "{{ _molecule_common_retry_marker }}"
+        owner: "root"
+        group: "root"
+        mode: "0644"
+
+    - name: "Use service module fixture for Storage Service retry"
+      ansible.builtin.set_fact:
+        ansible_facts: "{{ ansible_facts | combine({'service_mgr': 'service'}) }}"
+      no_log: true
+
+    - name: "Run common AIP storage capture with Storage Service retry"
+      ansible.builtin.include_role:
+        name: "{{ _molecule_common_role_path }}"
+        tasks_from: "common/capture-aip-storage-stats.yml"
+      vars:
+        _archivematica_upgrade_aip_storage_es_url: "{{ _molecule_common_fixture_http_url }}"
+        _archivematica_upgrade_aip_storage_output_file: "{{ _molecule_common_retry_aip_storage_file }}"
+        _archivematica_upgrade_capture_start_ss_api: true
+        _archivematica_upgrade_capture_force: true
+
+    - name: "Read retry AIP storage state"
+      ansible.builtin.slurp:
+        src: "{{ _molecule_common_retry_aip_storage_file }}"
+      register: "_molecule_common_retry_aip_storage_state_content"
+
+    - name: "Load retry AIP storage state"
+      ansible.builtin.set_fact:
+        _molecule_common_retry_aip_storage_state: >-
+          {{ _molecule_common_retry_aip_storage_state_content.content | b64decode | from_json }}
+
+    - name: "Require retry AIP storage state"
+      ansible.builtin.assert:
+        that:
+          - _molecule_common_retry_aip_storage_state.storage_service.aip_count | int == 3
+          - _molecule_common_retry_aip_storage_state.archival_storage.aip_count | int == 3
+
+    - name: "Create populated MySQL command fixture directory"
+      ansible.builtin.file:
+        path: "{{ _molecule_common_populated_bin }}"
+        state: "directory"
+        owner: "root"
+        group: "root"
+        mode: "0755"
+
+    - name: "Install populated application-state MySQL command fixture"
+      ansible.builtin.copy:
+        dest: "{{ _molecule_common_populated_bin }}/mysql"
+        owner: "root"
+        group: "root"
+        mode: "0755"
+        content: |
+          #!/bin/sh
+          case "$*" in
+            *"archivematica_upgrade_dashboard_application_state"*)
+              cat <<'JSON'
+          {
+            "premis_agent": {
+              "identifiertype": "repository",
+              "identifiervalue": "repo-1",
+              "name": "Archivematica",
+              "agenttype": "software"
+            },
+            "atom_configuration": {
+              "url": "https://atom.example.test/",
+              "email": "atom@example.test",
+              "password_configured": true,
+              "version": "2.8",
+              "rsync_target": "/atom",
+              "rsync_command": "rsync -av",
+              "debug": "false",
+              "key_configured": true
+            },
+            "system_users": [
+              {
+                "username": "alpha",
+                "first_name": "Alpha",
+                "last_name": "User",
+                "email": "alpha@example.test",
+                "is_active": true,
+                "is_superuser": false,
+                "system_emails": true
+              }
+            ]
+          }
+          JSON
+              ;;
+            *"archivematica_upgrade_storage_service_application_state"*)
+              cat <<'JSON'
+          {
+            "pipelines": [
+              {
+                "uuid": "pipe-1",
+                "description": "Pipeline 1",
+                "remote_name": "pipeline-one"
+              }
+            ],
+            "spaces": [
+              {
+                "uuid": "space-1",
+                "access_protocol": "FS",
+                "path": "/var/archivematica/storage",
+                "staging_path": "/var/archivematica/staging",
+                "size": 100
+              }
+            ],
+            "locations": [
+              {
+                "uuid": "loc-1",
+                "description": "Location 1",
+                "purpose": "AS",
+                "enabled": true,
+                "relative_path": "aips",
+                "quota": 200,
+                "space_uuid": "space-1",
+                "pipeline_uuids": ["pipe-2", "pipe-1"]
+              }
+            ],
+            "system_users": [
+              {
+                "username": "storage",
+                "first_name": "Storage",
+                "last_name": "User",
+                "email": "storage@example.test",
+                "is_active": true,
+                "is_superuser": true,
+                "role": "manager"
+              }
+            ]
+          }
+          JSON
+              ;;
+            *)
+              printf '0\n'
+              ;;
+          esac
+
+    - name: "Run common application state capture with populated database fixtures"
+      environment:
+        PATH: "{{ _molecule_common_populated_bin }}:{{ ansible_env.PATH }}"
+      block:
+        - name: "Include populated application state capture tasks"
+          ansible.builtin.include_role:
+            name: "{{ _molecule_common_role_path }}"
+            tasks_from: "common/capture-application-state.yml"
+          vars:
+            _archivematica_upgrade_application_state_output_file: "{{ _molecule_common_populated_application_state_file }}"
+            _archivematica_upgrade_capture_force: true
+
+    - name: "Read populated application state"
+      ansible.builtin.slurp:
+        src: "{{ _molecule_common_populated_application_state_file }}"
+      register: "_molecule_common_populated_application_state_content"
+
+    - name: "Load populated application state"
+      ansible.builtin.set_fact:
+        _molecule_common_populated_application_state: >-
+          {{ _molecule_common_populated_application_state_content.content | b64decode | from_json }}
+
+    - name: "Require populated application state normalization"
+      ansible.builtin.assert:
+        that:
+          - _molecule_common_populated_application_state.dashboard.system_users[0].username == 'alpha'
+          - _molecule_common_populated_application_state.dashboard.atom_configuration.url == 'https://atom.example.test'
+          - _molecule_common_populated_application_state.dashboard.atom_configuration.password_configured | bool
+          - _molecule_common_populated_application_state.dashboard.atom_configuration.key_configured | bool
+          - _molecule_common_populated_application_state.storage_service.pipelines[0].uuid == 'pipe-1'
+          - _molecule_common_populated_application_state.storage_service.spaces[0].size | int == 100
+          - _molecule_common_populated_application_state.storage_service.locations[0].pipeline_uuids == ['pipe-1', 'pipe-2']
+          - _molecule_common_populated_application_state.storage_service.system_users[0].role == 'manager'
+
+    - name: "Require local apt key fixture was installed"
+      ansible.builtin.assert:
+        that:
+          - "'molecule-local-archivematica-apt-key' in (_molecule_common_apt_keyring_content.content | b64decode)"
+      when: ansible_distribution == "Ubuntu"
+
+    - name: "Read Archivematica apt source fixture"
+      ansible.builtin.slurp:
+        src: "{{ _molecule_common_apt_source_file }}"
+      register: "_molecule_common_apt_source_content_raw"
+      when: ansible_distribution == "Ubuntu"
+
+    - name: "Load Archivematica apt source fixture"
+      ansible.builtin.set_fact:
+        _molecule_common_apt_source_content: >-
+          {{ _molecule_common_apt_source_content_raw.content | b64decode }}
+        _molecule_common_expected_apt_source_content: >-
+          deb [signed-by={{ archivematica_upgrade_archivematica_apt_keyring_path }}]
+          http://packages.archivematica.org/1.18.x/ubuntu noble main
+      when: ansible_distribution == "Ubuntu"
+
+    - name: "Require Archivematica apt source rewrite"
+      ansible.builtin.assert:
+        that:
+          - _molecule_common_apt_source_content | trim == _molecule_common_expected_apt_source_content
+      when: ansible_distribution == "Ubuntu"
+
+    - name: "Remove distro skip marker path"
+      ansible.builtin.file:
+        path: "{{ _molecule_common_fixture_root }}/distro-skip"
+        state: "absent"
+
+    - name: "Run apt key refresh with a non-Ubuntu distribution"
+      ansible.builtin.include_role:
+        name: "{{ _molecule_common_role_path }}"
+        tasks_from: "common/refresh-archivematica-apt-key.yml"
+      vars:
+        ansible_distribution: "Rocky"
+        archivematica_upgrade_archivematica_apt_key_url: "http://127.0.0.1:9/not-used"
+        archivematica_upgrade_archivematica_apt_keyring_path: "{{ _molecule_common_fixture_root }}/distro-skip/keyring.gpg"
+
+    - name: "Inspect distro skip marker keyring"
+      ansible.builtin.stat:
+        path: "{{ _molecule_common_fixture_root }}/distro-skip/keyring.gpg"
+      register: "_molecule_common_distro_skip_keyring"
+
+    - name: "Require distro-specific apt key skip"
+      ansible.builtin.assert:
+        that:
+          - not _molecule_common_distro_skip_keyring.stat.exists
+
+    - name: "Verify invalid upgrade identifier is rejected"
+      block:
+        - name: "Run load context with an invalid upgrade identifier"
+          ansible.builtin.include_role:
+            name: "{{ _molecule_common_role_path }}"
+            tasks_from: "common/load-context.yml"
+          vars:
+            archivematica_upgrade_id: "invalid/id"
+
+        - name: "Fail when invalid upgrade identifier is accepted"
+          ansible.builtin.fail:
+            msg: "load-context accepted an invalid upgrade identifier."
+      rescue:
+        - name: "Require invalid upgrade identifier failure"
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_result is defined
+              - "'Set archivematica_upgrade_id' in (ansible_failed_result.msg | default(''))"
+
+    - name: "Verify missing prepared state is rejected"
+      block:
+        - name: "Run load context for a missing state fixture"
+          ansible.builtin.include_role:
+            name: "{{ _molecule_common_role_path }}"
+            tasks_from: "common/load-context.yml"
+          vars:
+            archivematica_upgrade_id: "molecule-missing-state"
+
+        - name: "Run load state with missing prepared state"
+          ansible.builtin.include_role:
+            name: "{{ _molecule_common_role_path }}"
+            tasks_from: "common/load-state.yml"
+
+        - name: "Fail when missing prepared state is accepted"
+          ansible.builtin.fail:
+            msg: "load-state accepted missing prepared upgrade state."
+      rescue:
+        - name: "Require missing prepared state failure"
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_result is defined
+              - "'Required upgrade state is missing' in (ansible_failed_result.msg | default(''))"
+
+    - name: "Create negative MySQL command fixture directory"
+      ansible.builtin.file:
+        path: "{{ _molecule_common_negative_bin }}"
+        state: "directory"
+        owner: "root"
+        group: "root"
+        mode: "0755"
+
+    - name: "Install active-job MySQL command fixture"
+      ansible.builtin.copy:
+        dest: "{{ _molecule_common_negative_bin }}/mysql"
+        owner: "root"
+        group: "root"
+        mode: "0755"
+        content: |
+          #!/bin/sh
+          case "$*" in
+            *"SELECT COUNT(*) FROM Jobs WHERE currentStep IN (1, 3);"*)
+              printf '1\n'
+              ;;
+            *)
+              printf '0\n'
+              ;;
+          esac
+
+    - name: "Verify active MCP jobs are rejected"
+      environment:
+        PATH: "{{ _molecule_common_negative_bin }}:{{ ansible_env.PATH }}"
+      block:
+        - name: "Run idle requirement tasks with active jobs"
+          ansible.builtin.include_role:
+            name: "{{ _molecule_common_role_path }}"
+            tasks_from: "common/require-idle.yml"
+
+        - name: "Fail when active MCP jobs are accepted"
+          ansible.builtin.fail:
+            msg: "require-idle accepted active MCP jobs."
+      rescue:
+        - name: "Require active MCP job failure"
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_result is defined
+              - "'active or waiting MCP jobs' in (ansible_failed_result.msg | default(''))"
+
+    - name: "Require common task coverage"
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_playbook_python }}"
+          - "{{ _molecule_common_role_path }}/molecule/common/scripts/verify_task_coverage.py"
+          - "--project-root"
+          - "{{ _molecule_common_role_path }}"
+          - "--coverage-file"
+          - "{{ _molecule_common_coverage_file }}"
+          - "--config"
+          - "{{ _molecule_common_coverage_config }}"
+      changed_when: false
+      become: false
+      delegate_to: "localhost"

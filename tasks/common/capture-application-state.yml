@@ -1,0 +1,350 @@
+---
+- name: "Find Dashboard processing configuration files"
+  ansible.builtin.find:
+    paths: "{{ _archivematica_upgrade_processing_config_dir }}"
+    patterns: "*ProcessingMCP.xml"
+    file_type: "file"
+  register: "_archivematica_upgrade_processing_config_files"
+
+- name: "Set Dashboard processing configuration names"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_processing_configurations: >-
+      {{
+        _archivematica_upgrade_processing_config_files.files |
+        map(attribute='path') |
+        map('basename') |
+        map('regex_replace', 'ProcessingMCP[.]xml$', '') |
+        sort
+      }}
+
+- name: "Read Dashboard application state from the database"
+  ansible.builtin.command:
+    argv: >-
+      {{
+        ['mysql'] +
+        _archivematica_upgrade_mysql_client_args +
+        [
+          '--batch',
+          '--raw',
+          '--skip-column-names',
+          archivematica_src_am_db_name,
+          '--execute',
+          _archivematica_upgrade_dashboard_application_state_sql
+        ]
+      }}
+  register: "_archivematica_upgrade_dashboard_application_state_response"
+  changed_when: false
+  no_log: true
+  vars:
+    _archivematica_upgrade_dashboard_application_state_sql: |
+      /* archivematica_upgrade_dashboard_application_state */
+      SELECT JSON_OBJECT(
+        'premis_agent',
+        COALESCE((
+          SELECT JSON_OBJECT(
+            'identifiertype', COALESCE(agentIdentifierType, ''),
+            'identifiervalue', COALESCE(agentIdentifierValue, ''),
+            'name', COALESCE(agentName, ''),
+            'agenttype', COALESCE(agentType, '')
+          )
+          FROM Agents
+          WHERE pk = 2
+          LIMIT 1
+        ), JSON_OBJECT()),
+        'atom_configuration',
+        JSON_OBJECT(
+          'url', COALESCE((SELECT value FROM DashboardSettings WHERE scope = 'upload-qubit_v0.0' AND name = 'url' LIMIT 1), ''),
+          'email', COALESCE((SELECT value FROM DashboardSettings WHERE scope = 'upload-qubit_v0.0' AND name = 'email' LIMIT 1), ''),
+          'password_configured', COALESCE((SELECT value FROM DashboardSettings WHERE scope = 'upload-qubit_v0.0' AND name = 'password' LIMIT 1), '') <> '',
+          'version', COALESCE((SELECT value FROM DashboardSettings WHERE scope = 'upload-qubit_v0.0' AND name = 'version' LIMIT 1), ''),
+          'rsync_target', COALESCE((SELECT value FROM DashboardSettings WHERE scope = 'upload-qubit_v0.0' AND name = 'rsync_target' LIMIT 1), ''),
+          'rsync_command', COALESCE((SELECT value FROM DashboardSettings WHERE scope = 'upload-qubit_v0.0' AND name = 'rsync_command' LIMIT 1), ''),
+          'debug', COALESCE((SELECT value FROM DashboardSettings WHERE scope = 'upload-qubit_v0.0' AND name = 'debug' LIMIT 1), ''),
+          'key_configured', COALESCE((SELECT value FROM DashboardSettings WHERE scope = 'upload-qubit_v0.0' AND name = 'key' LIMIT 1), '') <> ''
+        ),
+        'system_users',
+        COALESCE((
+          SELECT JSON_ARRAYAGG(JSON_OBJECT(
+            'username', COALESCE(u.username, ''),
+            'first_name', COALESCE(u.first_name, ''),
+            'last_name', COALESCE(u.last_name, ''),
+            'email', COALESCE(u.email, ''),
+            'is_active', u.is_active,
+            'is_superuser', u.is_superuser,
+            'system_emails', COALESCE(up.system_emails, 0)
+          ))
+          FROM auth_user u
+          LEFT JOIN main_userprofile up ON up.user_id = u.id
+        ), JSON_ARRAY())
+      );
+
+- name: "Read Storage Service application state from the database"
+  ansible.builtin.command:
+    argv: >-
+      {{
+        ['mysql'] +
+        _archivematica_upgrade_mysql_client_args +
+        [
+          '--batch',
+          '--raw',
+          '--skip-column-names',
+          archivematica_src_ss_db_name,
+          '--execute',
+          _archivematica_upgrade_storage_service_application_state_sql
+        ]
+      }}
+  register: "_archivematica_upgrade_storage_service_application_state_response"
+  changed_when: false
+  no_log: true
+  vars:
+    _archivematica_upgrade_storage_service_application_state_sql: |
+      /* archivematica_upgrade_storage_service_application_state */
+      SELECT JSON_OBJECT(
+        'pipelines',
+        COALESCE((
+          SELECT JSON_ARRAYAGG(JSON_OBJECT(
+            'uuid', COALESCE(uuid, ''),
+            'description', COALESCE(description, ''),
+            'remote_name', COALESCE(remote_name, '')
+          ))
+          FROM locations_pipeline
+        ), JSON_ARRAY()),
+        'spaces',
+        COALESCE((
+          SELECT JSON_ARRAYAGG(JSON_OBJECT(
+            'uuid', COALESCE(uuid, ''),
+            'access_protocol', COALESCE(access_protocol, ''),
+            'path', COALESCE(path, ''),
+            'staging_path', COALESCE(staging_path, ''),
+            'size', COALESCE(size, 0)
+          ))
+          FROM locations_space
+        ), JSON_ARRAY()),
+        'locations',
+        COALESCE((
+          SELECT JSON_ARRAYAGG(JSON_OBJECT(
+            'uuid', COALESCE(l.uuid, ''),
+            'description', COALESCE(l.description, ''),
+            'purpose', COALESCE(l.purpose, ''),
+            'enabled', l.enabled,
+            'relative_path', COALESCE(l.relative_path, ''),
+            'quota', COALESCE(l.quota, 0),
+            'space_uuid', COALESCE(l.space_id, ''),
+            'pipeline_uuids', COALESCE((
+              SELECT JSON_ARRAYAGG(lp.pipeline_id)
+              FROM locations_locationpipeline lp
+              WHERE lp.location_id = l.uuid
+            ), JSON_ARRAY())
+          ))
+          FROM locations_location l
+        ), JSON_ARRAY()),
+        'system_users',
+        COALESCE((
+          SELECT JSON_ARRAYAGG(JSON_OBJECT(
+            'username', COALESCE(u.username, ''),
+            'first_name', COALESCE(u.first_name, ''),
+            'last_name', COALESCE(u.last_name, ''),
+            'email', COALESCE(u.email, ''),
+            'is_active', u.is_active,
+            'is_superuser', u.is_superuser,
+            'role', COALESCE((
+              SELECT MIN(g.name)
+              FROM auth_user_groups ug
+              INNER JOIN auth_group g ON g.id = ug.group_id
+              WHERE ug.user_id = u.id
+            ), '')
+          ))
+          FROM auth_user u
+        ), JSON_ARRAY())
+      );
+
+- name: "Parse raw application state"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_dashboard_database_state: >-
+      {{
+        _archivematica_upgrade_dashboard_application_state_response.stdout |
+        trim |
+        from_json
+      }}
+    _archivematica_upgrade_storage_service_database_state: >-
+      {{
+        _archivematica_upgrade_storage_service_application_state_response.stdout |
+        trim |
+        from_json
+      }}
+  no_log: true
+
+- name: "Initialize normalized Dashboard system users"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_dashboard_system_users: []
+
+- name: "Collect normalized Dashboard system users"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_dashboard_system_users: >-
+      {{
+        _archivematica_upgrade_dashboard_system_users +
+        [
+          {
+            'username': item.username | default('', true),
+            'first_name': item.first_name | default('', true),
+            'last_name': item.last_name | default('', true),
+            'email': item.email | default('', true),
+            'is_active': item.is_active | default(false) | bool,
+            'is_superuser': item.is_superuser | default(false) | bool,
+            'system_emails': item.system_emails | default(false) | bool
+          }
+        ]
+      }}
+  loop: "{{ _archivematica_upgrade_dashboard_database_state.system_users | default([]) | sort(attribute='username') }}"
+  no_log: true
+
+- name: "Initialize normalized Storage Service pipelines"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_storage_service_pipelines: []
+
+- name: "Collect normalized Storage Service pipelines"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_storage_service_pipelines: >-
+      {{
+        _archivematica_upgrade_storage_service_pipelines +
+        [
+          {
+            'uuid': item.uuid | default('', true),
+            'description': item.description | default('', true),
+            'remote_name': item.remote_name | default('', true)
+          }
+        ]
+      }}
+  loop: "{{ _archivematica_upgrade_storage_service_database_state.pipelines | default([]) | sort(attribute='uuid') }}"
+  no_log: true
+
+- name: "Initialize normalized Storage Service spaces"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_storage_service_spaces: []
+
+- name: "Collect normalized Storage Service spaces"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_storage_service_spaces: >-
+      {{
+        _archivematica_upgrade_storage_service_spaces +
+        [
+          {
+            'uuid': item.uuid | default('', true),
+            'access_protocol': item.access_protocol | default('', true),
+            'path': item.path | default('', true),
+            'staging_path': item.staging_path | default('', true),
+            'size': item.size | default(0, true) | int
+          }
+        ]
+      }}
+  loop: "{{ _archivematica_upgrade_storage_service_database_state.spaces | default([]) | sort(attribute='uuid') }}"
+  no_log: true
+
+- name: "Initialize normalized Storage Service locations"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_storage_service_locations: []
+
+- name: "Collect normalized Storage Service locations"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_storage_service_locations: >-
+      {{
+        _archivematica_upgrade_storage_service_locations +
+        [
+          {
+            'uuid': item.uuid | default('', true),
+            'description': item.description | default('', true),
+            'purpose': item.purpose | default('', true),
+            'enabled': item.enabled | default(false) | bool,
+            'relative_path': item.relative_path | default('', true),
+            'quota': item.quota | default(0, true) | int,
+            'space_uuid': item.space_uuid | default(item.space | default('', true), true),
+            'pipeline_uuids': item.pipeline_uuids | default(item.pipeline | default([]), true) | sort
+          }
+        ]
+      }}
+  loop: "{{ _archivematica_upgrade_storage_service_database_state.locations | default([]) | sort(attribute='uuid') }}"
+  no_log: true
+
+- name: "Initialize normalized Storage Service system users"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_storage_service_system_users: []
+
+- name: "Collect normalized Storage Service system users"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_storage_service_system_users: >-
+      {{
+        _archivematica_upgrade_storage_service_system_users +
+        [
+          {
+            'username': item.username | default('', true),
+            'first_name': item.first_name | default('', true),
+            'last_name': item.last_name | default('', true),
+            'email': item.email | default('', true),
+            'is_active': item.is_active | default(false) | bool,
+            'is_superuser': item.is_superuser | default(false) | bool,
+            'role': item.role | default('', true)
+          }
+        ]
+      }}
+  loop: "{{ _archivematica_upgrade_storage_service_database_state.system_users | default([]) | sort(attribute='username') }}"
+  no_log: true
+
+- name: "Set normalized application state"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_captured_application_state: >-
+      {{
+        {
+          'dashboard': {
+            'processing_configurations': _archivematica_upgrade_processing_configurations,
+            'premis_agent': {
+              'identifiertype': _archivematica_upgrade_dashboard_database_state.premis_agent.identifiertype | default('', true),
+              'identifiervalue': _archivematica_upgrade_dashboard_database_state.premis_agent.identifiervalue | default('', true),
+              'name': _archivematica_upgrade_dashboard_database_state.premis_agent.name | default('', true),
+              'agenttype': _archivematica_upgrade_dashboard_database_state.premis_agent.agenttype | default('', true)
+            },
+            'atom_configuration': {
+              'url': _archivematica_upgrade_dashboard_database_state.atom_configuration.url | default('', true) | regex_replace('/+$', ''),
+              'email': _archivematica_upgrade_dashboard_database_state.atom_configuration.email | default('', true),
+              'password_configured': (
+                _archivematica_upgrade_dashboard_database_state.atom_configuration.password_configured |
+                default(
+                  _archivematica_upgrade_dashboard_database_state.atom_configuration.password |
+                  default('', true) |
+                  string |
+                  length > 0
+                )
+              ) | bool,
+              'version': _archivematica_upgrade_dashboard_database_state.atom_configuration.version | default('', true),
+              'rsync_target': _archivematica_upgrade_dashboard_database_state.atom_configuration.rsync_target | default('', true),
+              'rsync_command': _archivematica_upgrade_dashboard_database_state.atom_configuration.rsync_command | default('', true),
+              'debug': _archivematica_upgrade_dashboard_database_state.atom_configuration.debug | default('', true),
+              'key_configured': (
+                _archivematica_upgrade_dashboard_database_state.atom_configuration.key_configured |
+                default(
+                  _archivematica_upgrade_dashboard_database_state.atom_configuration.key |
+                  default('', true) |
+                  string |
+                  length > 0
+                )
+              ) | bool
+            },
+            'system_users': _archivematica_upgrade_dashboard_system_users
+          },
+          'storage_service': {
+            'pipelines': _archivematica_upgrade_storage_service_pipelines,
+            'spaces': _archivematica_upgrade_storage_service_spaces,
+            'locations': _archivematica_upgrade_storage_service_locations,
+            'system_users': _archivematica_upgrade_storage_service_system_users
+          }
+        }
+      }}
+  no_log: true
+
+- name: "Store captured application state"
+  ansible.builtin.copy:
+    content: "{{ _archivematica_upgrade_captured_application_state | to_nice_json }}\n"
+    dest: "{{ _archivematica_upgrade_application_state_output_file }}"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+    force: "{{ _archivematica_upgrade_capture_force | default(true) | bool }}"

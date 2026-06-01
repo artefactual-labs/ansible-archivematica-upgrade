@@ -1,0 +1,219 @@
+---
+- name: "Verify prepare rejects missing snapshot confirmation"
+  block:
+    - name: "Run prepare without snapshot confirmation"
+      ansible.builtin.include_tasks: "run-phase-file.yml"
+      vars:
+        _phase_coverage_phase_file: "prepare"
+        archivematica_upgrade_snapshot_confirmed: false
+
+    - name: "Fail when prepare accepts missing snapshot confirmation"
+      ansible.builtin.fail:
+        msg: "prepare accepted missing snapshot confirmation"
+  rescue:
+    - name: "Require missing snapshot confirmation failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'snapshot' in (ansible_failed_result.msg | default(''))"
+
+- name: "Seed prepared state before phase guardrail checks"
+  ansible.builtin.include_tasks: "seed-prepared-state.yml"
+
+- name: "Verify cutover-before-install rejects missing preparation checkpoint"
+  block:
+    - name: "Run cutover-before-install without prepared checkpoint"
+      ansible.builtin.include_tasks: "run-phase-file.yml"
+      vars:
+        _phase_coverage_phase_file: "cutover-before-install"
+
+    - name: "Fail when cutover-before-install accepts missing preparation"
+      ansible.builtin.fail:
+        msg: "cutover-before-install accepted missing preparation"
+  rescue:
+    - name: "Require missing preparation failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'prepare phase' in (ansible_failed_result.msg | default(''))"
+
+- name: "Verify migrate rejects missing cutover checkpoint"
+  block:
+    - name: "Run migrate without cutover checkpoint"
+      ansible.builtin.include_tasks: "run-phase-file.yml"
+      vars:
+        _phase_coverage_phase_file: "migrate"
+
+    - name: "Fail when migrate accepts missing cutover"
+      ansible.builtin.fail:
+        msg: "migrate accepted missing cutover"
+  rescue:
+    - name: "Require missing cutover failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'cutover phase' in (ansible_failed_result.msg | default(''))"
+
+- name: "Seed validation checkpoint for cleanup confirmation guardrail"
+  ansible.builtin.copy:
+    content: "seeded\n"
+    dest: "{{ _archivematica_upgrade_checkpoint_dir }}/validated"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+
+- name: "Verify cleanup rejects missing confirmation"
+  block:
+    - name: "Run cleanup without confirmation"
+      ansible.builtin.include_tasks: "run-phase-file.yml"
+      vars:
+        _phase_coverage_phase_file: "cleanup"
+        archivematica_upgrade_cleanup_confirmed: false
+
+    - name: "Fail when cleanup accepts missing confirmation"
+      ansible.builtin.fail:
+        msg: "cleanup accepted missing confirmation"
+  rescue:
+    - name: "Require missing cleanup confirmation failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'cleanup_confirmed' in (ansible_failed_result.msg | default(''))"
+
+- name: "Verify restore-backup-check rejects missing manifest"
+  block:
+    - name: "Run restore-backup-check without manifest"
+      ansible.builtin.include_tasks: "run-phase-file.yml"
+      vars:
+        _phase_coverage_phase_file: "restore-backup-check"
+        archivematica_upgrade_id: "missing-manifest"
+
+    - name: "Fail when restore-backup-check accepts missing manifest"
+      ansible.builtin.fail:
+        msg: "restore-backup-check accepted missing manifest"
+  rescue:
+    - name: "Require missing backup manifest failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'backup manifest is missing' in (ansible_failed_result.msg | default(''))"
+
+- name: "Reload default context after missing manifest guardrail"
+  ansible.builtin.include_tasks: "load-context.yml"
+
+- name: "Enable late common local service fixture"
+  ansible.builtin.copy:
+    content: ""
+    dest: "{{ _phase_coverage_fixture_root }}/late-common-service"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+
+- name: "Verify check-readiness rejects unmanaged common local services"
+  block:
+    - name: "Run check-readiness with an unmanaged common local service"
+      ansible.builtin.include_tasks: "run-phase-file.yml"
+      vars:
+        _phase_coverage_phase_file: "check-readiness"
+        archivematica_upgrade_common_local_services:
+          - "archivematica-late"
+
+    - name: "Fail when check-readiness accepts unmanaged common local service"
+      ansible.builtin.fail:
+        msg: "check-readiness accepted unmanaged common local service"
+  rescue:
+    - name: "Require unmanaged common local service failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'not managed' in (ansible_failed_result.msg | default(''))"
+
+- name: "Seed reindex checkpoint before validate service guardrail"
+  ansible.builtin.copy:
+    content: "seeded\n"
+    dest: "{{ _archivematica_upgrade_checkpoint_dir }}/migrations/elasticsearch-6-to-8/reindexed"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+
+- name: "Remove one application systemd unit for stopped service guardrail"
+  ansible.builtin.file:
+    path: "/etc/systemd/system/archivematica-dashboard.service"
+    state: "absent"
+
+- name: "Enable stopped dashboard service fixture"
+  ansible.builtin.copy:
+    content: ""
+    dest: "{{ _phase_coverage_fixture_root }}/dashboard-stopped"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+
+- name: "Make one application service remain stopped after start"
+  ansible.builtin.copy:
+    dest: "/etc/init.d/archivematica-dashboard"
+    owner: "root"
+    group: "root"
+    mode: "0755"
+    content: |
+      #!/bin/sh
+      marker="/tmp/archivematica-dashboard.started"
+      case "$1" in
+        start)
+          rm -f "$marker"
+          exit 0
+          ;;
+        stop)
+          rm -f "$marker"
+          exit 0
+          ;;
+        status)
+          test -f "$marker"
+          exit $?
+          ;;
+        *)
+          exit 0
+          ;;
+      esac
+
+- name: "Verify validate rejects stopped application services"
+  block:
+    - name: "Run validate with a stopped application service"
+      ansible.builtin.include_tasks: "run-phase-file.yml"
+      vars:
+        _phase_coverage_phase_file: "validate"
+
+    - name: "Fail when validate accepts stopped service"
+      ansible.builtin.fail:
+        msg: "validate accepted stopped service"
+  rescue:
+    - name: "Require stopped service failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'not running' in (ansible_failed_result.msg | default(''))"
+
+- name: "Remove one application service for validate guardrail"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: "absent"
+  loop:
+    - "/etc/init.d/archivematica-dashboard"
+    - "/etc/systemd/system/archivematica-dashboard.service"
+
+- name: "Verify validate rejects missing application services"
+  block:
+    - name: "Run validate with a missing application service"
+      ansible.builtin.include_tasks: "run-phase-file.yml"
+      vars:
+        _phase_coverage_phase_file: "validate"
+
+    - name: "Fail when validate accepts missing service"
+      ansible.builtin.fail:
+        msg: "validate accepted missing service"
+  rescue:
+    - name: "Require missing service failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'not installed' in (ansible_failed_result.msg | default(''))"

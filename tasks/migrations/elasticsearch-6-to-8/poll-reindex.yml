@@ -1,0 +1,55 @@
+---
+- name: "Poll Elasticsearch remote reindex for {{ _archivematica_upgrade_reindex_index }}"
+  ansible.builtin.uri:
+    url: >-
+      {{ _archivematica_upgrade_destination_es_url }}/_tasks/{{
+        _archivematica_upgrade_reindex_task_ids[_archivematica_upgrade_reindex_index]
+      }}
+    return_content: true
+    status_code:
+      - 200
+      - 404
+    timeout: 60
+  register: "_archivematica_upgrade_reindex_task"
+  until:
+    - >-
+      _archivematica_upgrade_reindex_task.status == 404 or
+      (
+        _archivematica_upgrade_reindex_task.status == 200 and
+        _archivematica_upgrade_reindex_task.json.completed | default(false) | bool
+      )
+  retries: "{{ [(((archivematica_upgrade_reindex_timeout | int) + 4) // 5), 1] | max }}"
+  delay: 5
+
+- name: "Fail when persisted Elasticsearch remote-reindex task ID is obsolete for {{ _archivematica_upgrade_reindex_index }}"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_reindex_task.status != 404
+    fail_msg: >-
+      The persisted Elasticsearch remote-reindex task ID
+      {{ _archivematica_upgrade_reindex_task_ids[_archivematica_upgrade_reindex_index] }}
+      for {{ _archivematica_upgrade_reindex_index }} is no longer valid. Stop
+      Archivematica services, review or recreate the destination indices, remove
+      {{ _archivematica_upgrade_reindex_task_ids_file }}, and rerun
+      the migrate phase.
+
+- name: "Require a completed Elasticsearch remote-reindex response for {{ _archivematica_upgrade_reindex_index }}"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_reindex_task.json.response is defined
+    fail_msg: >-
+      Elasticsearch remote-reindex task
+      {{ _archivematica_upgrade_reindex_task_ids[_archivematica_upgrade_reindex_index] }}
+      for {{ _archivematica_upgrade_reindex_index }} did not return a completed
+      response.
+
+- name: "Collect Elasticsearch remote-reindex response for {{ _archivematica_upgrade_reindex_index }}"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_reindex_responses: >-
+      {{
+        _archivematica_upgrade_reindex_responses |
+        combine({
+          _archivematica_upgrade_reindex_index:
+          _archivematica_upgrade_reindex_task.json.response
+        })
+      }}

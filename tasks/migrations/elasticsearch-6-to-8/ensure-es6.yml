@@ -1,0 +1,107 @@
+---
+- name: "Check whether temporary Elasticsearch 6 is responding"
+  ansible.builtin.uri:
+    url: "{{ _archivematica_upgrade_es6_url }}"
+    status_code: 200
+  register: "_archivematica_upgrade_es6_probe"
+  failed_when: false
+  changed_when: false
+
+- name: "Start temporary Elasticsearch 6"
+  ansible.builtin.shell: |
+    set -o errexit -o nounset -o pipefail
+    if [ -f '{{ _archivematica_upgrade_es6_pidfile }}' ]; then
+      pid="$(cat '{{ _archivematica_upgrade_es6_pidfile }}')"
+      if kill -0 "$pid" 2>/dev/null; then
+        command_line="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"
+        case "$command_line" in
+          *"{{ _archivematica_upgrade_es6_dir }}"*)
+            echo "Temporary Elasticsearch process $pid exists but is not responding" >&2
+            exit 1
+            ;;
+          *)
+            echo "Removing stale temporary Elasticsearch PID file for unrelated process $pid"
+            rm -f '{{ _archivematica_upgrade_es6_pidfile }}'
+            ;;
+        esac
+      fi
+      rm -f '{{ _archivematica_upgrade_es6_pidfile }}'
+    fi
+    ./bin/elasticsearch \
+      --daemonize \
+      --pidfile '{{ _archivematica_upgrade_es6_pidfile }}' \
+      -Ehttp.port='{{ _archivematica_upgrade_es6_port }}' \
+      -Ediscovery.type=single-node
+    echo "started"
+  args:
+    chdir: "{{ _archivematica_upgrade_es6_dir }}"
+    executable: "/bin/bash"
+  environment:
+    JAVA_HOME: "{{ _archivematica_upgrade_java_11_home }}"
+    ES_JAVA_OPTS: "{{ archivematica_upgrade_es6_java_opts }}"
+  become: true
+  become_user: "{{ _archivematica_upgrade_es6_user }}"
+  register: "_archivematica_upgrade_es6_start"
+  changed_when: "'started' in (_archivematica_upgrade_es6_start.stdout_lines | default([]))"
+  when: _archivematica_upgrade_es6_probe.status | default(0) != 200
+
+- name: "Wait for temporary Elasticsearch 6 port"
+  ansible.builtin.wait_for:
+    host: "127.0.0.1"
+    port: "{{ _archivematica_upgrade_es6_port }}"
+    state: "started"
+    timeout: 60
+
+- name: "Wait for temporary Elasticsearch 6 health"
+  ansible.builtin.uri:
+    url: "{{ _archivematica_upgrade_es6_url }}/_cluster/health?wait_for_status=yellow&timeout=60s"
+    return_content: true
+  register: "_archivematica_upgrade_es6_health"
+  until:
+    - _archivematica_upgrade_es6_health.status == 200
+    - not (_archivematica_upgrade_es6_health.json.timed_out | default(false) | bool)
+  retries: 12
+  delay: 5
+
+- name: "Read temporary Elasticsearch 6 version"
+  ansible.builtin.uri:
+    url: "{{ _archivematica_upgrade_es6_url }}"
+    return_content: true
+  register: "_archivematica_upgrade_es6_response"
+
+- name: "Require the expected temporary Elasticsearch 6 version"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_es6_response.json.version.number == _archivematica_upgrade_source_es_version
+    fail_msg: "The temporary Elasticsearch 6 node is not serving the prepared migration data."
+
+- name: "Read temporary Elasticsearch 6 index counts"
+  ansible.builtin.uri:
+    url: "{{ _archivematica_upgrade_es6_url }}/{{ item }}/_count"
+    status_code:
+      - 200
+      - 404
+    return_content: true
+  loop: "{{ _archivematica_upgrade_indices }}"
+  register: "_archivematica_upgrade_es6_count_responses"
+
+- name: "Initialize temporary Elasticsearch 6 index counts"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_es6_index_counts: {}
+
+- name: "Collect temporary Elasticsearch 6 index counts"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_es6_index_counts: >-
+      {{
+        _archivematica_upgrade_es6_index_counts |
+        combine({item.item: item.json.count | default(0) | int})
+      }}
+  loop: "{{ _archivematica_upgrade_es6_count_responses.results }}"
+
+- name: "Verify temporary Elasticsearch 6 index counts"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_es6_index_counts == _archivematica_upgrade_source_index_counts
+    fail_msg: >-
+      Temporary Elasticsearch index counts {{ _archivematica_upgrade_es6_index_counts }}
+      do not match the packaged source counts {{ _archivematica_upgrade_source_index_counts }}.

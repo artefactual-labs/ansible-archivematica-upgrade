@@ -1,0 +1,24 @@
+---
+- name: "Run migration hooks for {{ _archivematica_upgrade_hook_phase }}"
+  ansible.builtin.include_tasks: >-
+    migrations/{{ _archivematica_upgrade_migration }}/{{ _archivematica_upgrade_hook_phase }}.yml
+  loop: "{{ _archivematica_upgrade_active_migrations }}"
+  loop_control:
+    loop_var: "_archivematica_upgrade_migration"
+    label: "{{ _archivematica_upgrade_migration }}"
+  vars:
+    _archivematica_upgrade_hook_file: >-
+      {{
+        (
+          role_path |
+          default(_archivematica_upgrade_role_path)
+        ) ~ '/tasks/migrations/' ~
+        _archivematica_upgrade_migration ~ '/' ~
+        _archivematica_upgrade_hook_phase ~ '.yml'
+      }}
+  when: >-
+    lookup(
+      'ansible.builtin.fileglob',
+      _archivematica_upgrade_hook_file,
+      wantlist=True
+    ) | length > 0

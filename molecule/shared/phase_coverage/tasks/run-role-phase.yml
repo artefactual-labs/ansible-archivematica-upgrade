@@ -1,0 +1,8 @@
+---
+- name: "Run Archivematica upgrade role phase {{ _phase_coverage_phase }}"
+  ansible.builtin.include_role:
+    name: "{{ _phase_coverage_role_path }}"
+    tasks_from: "main.yml"
+  vars:
+    archivematica_upgrade_phase: "{{ _phase_coverage_phase }}"
+    archivematica_upgrade_es6_checksum: "{{ _phase_coverage_es6_checksum }}"

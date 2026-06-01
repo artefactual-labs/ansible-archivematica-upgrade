@@ -1,0 +1,100 @@
+---
+- name: "Load context before seeding prepared state"
+  ansible.builtin.include_tasks: "load-context.yml"
+
+- name: "Create seeded upgrade state directories"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: "directory"
+    owner: "root"
+    group: "root"
+    mode: "0750"
+  loop:
+    - "{{ _archivematica_upgrade_checkpoint_dir }}"
+    - "{{ _archivematica_upgrade_state_dir }}"
+    - "{{ _archivematica_upgrade_backup_dir }}"
+    - "{{ _archivematica_upgrade_state_dir }}/migrations/elasticsearch-6-to-8"
+    - "{{ _archivematica_upgrade_checkpoint_dir }}/migrations/elasticsearch-6-to-8"
+
+- name: "Seed source AIP storage state"
+  ansible.builtin.copy:
+    content: |
+      {
+        "archival_storage": {
+          "aip_count": 3,
+          "aip_file_count": 6,
+          "aip_total_size_mb": 0.0
+        },
+        "storage_service": {
+          "aip_count": 3,
+          "aip_counts_by_status": {
+            "UPLOADED": 2,
+            "DEL_REQ": 1
+          }
+        }
+      }
+    dest: "{{ _archivematica_upgrade_source_aip_storage_stats_file }}"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+
+- name: "Seed source application state"
+  ansible.builtin.copy:
+    content: |
+      {
+        "dashboard": {
+          "processing_configurations": ["default"],
+          "premis_agent": {},
+          "atom_configuration": {
+            "url": "",
+            "email": "",
+            "password_configured": false,
+            "version": "",
+            "rsync_target": "",
+            "rsync_command": "",
+            "debug": "",
+            "key_configured": false
+          },
+          "system_users": []
+        },
+        "storage_service": {
+          "pipelines": [],
+          "spaces": [],
+          "locations": [],
+          "system_users": []
+        }
+      }
+    dest: "{{ _archivematica_upgrade_source_application_state_file }}"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+
+- name: "Seed Elasticsearch source version"
+  ansible.builtin.copy:
+    content: "{{ _phase_coverage_es6_version }}\n"
+    dest: "{{ _archivematica_upgrade_state_dir }}/migrations/elasticsearch-6-to-8/source-es-version"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+
+- name: "Seed Elasticsearch source counts"
+  ansible.builtin.copy:
+    content: |
+      {
+        "aips": 3,
+        "aipfiles": 6,
+        "transfers": 0,
+        "transferfiles": 0
+      }
+    dest: "{{ _archivematica_upgrade_state_dir }}/migrations/elasticsearch-6-to-8/source-index-counts.json"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+
+- name: "Seed Java home state"
+  ansible.builtin.copy:
+    content: "{{ archivematica_upgrade_java_11_home }}\n"
+    dest: "{{ _archivematica_upgrade_state_dir }}/migrations/elasticsearch-6-to-8/java-11-home"
+    owner: "root"
+    group: "root"
+    mode: "0640"

@@ -1,0 +1,15 @@
+---
+- name: "Require temporary Elasticsearch 6 to be stopped"
+  ansible.builtin.wait_for:
+    host: "127.0.0.1"
+    port: "{{ _archivematica_upgrade_es6_port }}"
+    state: "stopped"
+    timeout: 1
+
+- name: "Remove temporary Elasticsearch 6 files"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: "absent"
+  loop:
+    - "{{ _archivematica_upgrade_es6_dir }}"
+    - "{{ _archivematica_upgrade_es6_download }}"

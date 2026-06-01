@@ -1,0 +1,32 @@
+---
+- name: "Recreate Elasticsearch 8 configuration directory"
+  ansible.builtin.file:
+    path: "/etc/elasticsearch"
+    state: "directory"
+    owner: "elasticsearch"
+    group: "elasticsearch"
+    mode: "0755"
+
+- name: "Write Elasticsearch 8 configuration after installer handoff"
+  ansible.builtin.copy:
+    content: "cluster.name: phase-coverage-es8\n"
+    dest: "/etc/elasticsearch/elasticsearch.yml"
+    owner: "elasticsearch"
+    group: "elasticsearch"
+    mode: "0644"
+
+- name: "Recreate Elasticsearch 8 data and log directories"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: "directory"
+    owner: "elasticsearch"
+    group: "elasticsearch"
+    mode: "0755"
+  loop:
+    - "{{ archivematica_upgrade_es_data_dir }}"
+    - "/var/log/elasticsearch"
+
+- name: "Ensure Elasticsearch service fixture is started after installer handoff"
+  ansible.builtin.service:
+    name: "elasticsearch"
+    state: "started"

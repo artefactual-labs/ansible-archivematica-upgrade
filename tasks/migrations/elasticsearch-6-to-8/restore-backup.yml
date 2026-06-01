@@ -1,0 +1,53 @@
+---
+- name: "Stop packaged Elasticsearch before restore"
+  ansible.builtin.service:
+    name: "elasticsearch"
+    state: "stopped"
+
+- name: "Stop temporary Elasticsearch 6 before restore"
+  ansible.builtin.include_tasks: "migrations/elasticsearch-6-to-8/stop-es6.yml"
+
+- name: "Inspect preserved packaged Elasticsearch directories"
+  ansible.builtin.stat:
+    path: "{{ item.preserved }}"
+  loop:
+    - current: "{{ _archivematica_upgrade_es_config_dir }}"
+      preserved: "{{ _archivematica_upgrade_preserved_es_config_dir }}"
+    - current: "{{ _archivematica_upgrade_es_data_dir }}"
+      preserved: "{{ _archivematica_upgrade_preserved_es_data_dir }}"
+    - current: "{{ _archivematica_upgrade_es_log_dir }}"
+      preserved: "{{ _archivematica_upgrade_preserved_es_log_dir }}"
+  register: "_archivematica_upgrade_preserved_es6_directories"
+
+- name: "Require preserved packaged Elasticsearch paths to be directories"
+  ansible.builtin.assert:
+    that:
+      - item.stat.isdir | default(false)
+    fail_msg: >-
+      The preserved packaged Elasticsearch path {{ item.item.preserved }}
+      exists but is not a directory.
+  loop: "{{ _archivematica_upgrade_preserved_es6_directories.results }}"
+  loop_control:
+    label: "{{ item.item.preserved }}"
+  when: item.stat.exists
+
+- name: "Remove current packaged Elasticsearch directories before restore"
+  ansible.builtin.file:
+    path: "{{ item.item.current }}"
+    state: "absent"
+  loop: "{{ _archivematica_upgrade_preserved_es6_directories.results }}"
+  loop_control:
+    label: "{{ item.item.current }}"
+  when: item.stat.exists
+
+- name: "Move preserved packaged Elasticsearch directories back"
+  ansible.builtin.command:
+    argv:
+      - "mv"
+      - "{{ item.item.preserved }}"
+      - "{{ item.item.current }}"
+  loop: "{{ _archivematica_upgrade_preserved_es6_directories.results }}"
+  loop_control:
+    label: "{{ item.item.preserved }} -> {{ item.item.current }}"
+  changed_when: true
+  when: item.stat.exists

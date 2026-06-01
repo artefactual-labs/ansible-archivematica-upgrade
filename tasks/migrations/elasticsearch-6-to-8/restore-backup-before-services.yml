@@ -1,0 +1,32 @@
+---
+- name: "Read installed package versions before restore"
+  ansible.builtin.package_facts:
+    manager: "auto"
+
+- name: "Collect installed Elasticsearch package versions before restore"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_restore_packaged_es_versions: >-
+      {{
+        ansible_facts.packages.elasticsearch |
+        default([]) |
+        map(attribute='version') |
+        list
+      }}
+
+- name: "Require packaged Elasticsearch 6 before restore"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_restore_packaged_es_versions | length > 0
+      - >-
+        _archivematica_upgrade_restore_packaged_es_versions |
+        select('version', _archivematica_upgrade_es_source_min_version, '>=') |
+        select('version', _archivematica_upgrade_es_source_max_version, '<') |
+        list |
+        length > 0
+    fail_msg: >-
+      Restore packaged Elasticsearch 6 before running restore-backup. The
+      elasticsearch package must be installed with a version
+      {{ _archivematica_upgrade_es_source_min_version }} or later and earlier
+      than {{ _archivematica_upgrade_es_source_max_version }}. Run the external
+      deployment rollback for the Elasticsearch service, then rerun
+      restore-backup.

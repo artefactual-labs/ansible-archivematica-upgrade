@@ -1,0 +1,257 @@
+---
+- name: "Load common Archivematica upgrade values"
+  ansible.builtin.include_tasks: "common/load-context.yml"
+
+- name: "Load prepared Archivematica upgrade state"
+  ansible.builtin.include_tasks: "common/load-state.yml"
+
+- name: "Run validate-before-services hooks for active migrations"
+  ansible.builtin.include_tasks: "common/run-migration-hooks.yml"
+  vars:
+    _archivematica_upgrade_hook_phase: "validate-before-services"
+
+- name: "Read installed service facts"
+  ansible.builtin.service_facts:
+
+- name: "Initialize missing Archivematica application services"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_missing_application_services: []
+
+- name: "Collect missing Archivematica application services"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_missing_application_services: >-
+      {{ _archivematica_upgrade_missing_application_services + [item] }}
+  loop: "{{ _archivematica_upgrade_application_services }}"
+  when: item + '.service' not in ansible_facts.services
+
+- name: "Require installed Archivematica application services"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_missing_application_services | length == 0
+    fail_msg: >-
+      {{ _archivematica_upgrade_missing_application_services | first | default('A configured application service') }}
+      is not installed after the upgrade. Missing configured application services:
+      {{ _archivematica_upgrade_missing_application_services | join(', ') }}.
+
+- name: "Start Archivematica application services"
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: "started"
+  loop: "{{ _archivematica_upgrade_application_services }}"
+
+- name: "Allow Archivematica application services to settle"
+  ansible.builtin.pause:
+    seconds: 3
+
+- name: "Read service facts"
+  ansible.builtin.service_facts:
+
+- name: "Initialize stopped Archivematica application services"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_stopped_application_services: []
+
+- name: "Collect stopped Archivematica application services"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_stopped_application_services: >-
+      {{ _archivematica_upgrade_stopped_application_services + [item] }}
+  loop: "{{ _archivematica_upgrade_application_services }}"
+  when: ansible_facts.services[item + '.service'].state != 'running'
+
+- name: "Require running Archivematica application services"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_stopped_application_services | length == 0
+    fail_msg: >-
+      {{ _archivematica_upgrade_stopped_application_services | first | default('A configured application service') }}
+      is not running after the upgrade. Non-running configured application services:
+      {{ _archivematica_upgrade_stopped_application_services | join(', ') }}.
+
+- name: "Run validate hooks for active migrations"
+  ansible.builtin.include_tasks: "common/run-migration-hooks.yml"
+  vars:
+    _archivematica_upgrade_hook_phase: "validate"
+
+- name: "Check the local Dashboard endpoint"
+  ansible.builtin.uri:
+    url: "http://127.0.0.1/"
+    follow_redirects: "none"
+    status_code:
+      - 200
+      - 301
+      - 302
+      - 403
+  register: "_archivematica_upgrade_dashboard_endpoint"
+  until: _archivematica_upgrade_dashboard_endpoint.status in [200, 301, 302, 403]
+  retries: 12
+  delay: 5
+
+- name: "Check the local Storage Service endpoint"
+  ansible.builtin.uri:
+    url: "{{ 'https' if archivematica_src_ssl | default(false) | bool else 'http' }}://127.0.0.1:8000/"
+    follow_redirects: "none"
+    validate_certs: "{{ not (archivematica_src_ssl | default(false) | bool) }}"
+    status_code:
+      - 200
+      - 301
+      - 302
+      - 403
+  register: "_archivematica_upgrade_ss_endpoint"
+  until: _archivematica_upgrade_ss_endpoint.status in [200, 301, 302, 403]
+  retries: 12
+  delay: 5
+
+- name: "Require API validation credentials"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_am_api_url | length > 0
+      - archivematica_upgrade_am_api_user | length > 0
+      - archivematica_upgrade_am_api_key | length > 0
+      - _archivematica_upgrade_ss_api_url | length > 0
+      - archivematica_upgrade_ss_api_user | length > 0
+      - archivematica_upgrade_ss_api_key | length > 0
+    fail_msg: >-
+      Set the Archivematica and Storage Service API validation variables before
+      running the validate phase.
+
+- name: "Check the Dashboard API endpoint"
+  ansible.builtin.uri:
+    url: "{{ _archivematica_upgrade_am_api_url | regex_replace('/+$', '') }}/api/processing-configuration/"
+    headers:
+      Authorization: "ApiKey {{ archivematica_upgrade_am_api_user }}:{{ archivematica_upgrade_am_api_key }}"
+      Content-Type: "application/json"
+    return_content: true
+    status_code: 200
+    validate_certs: "{{ archivematica_upgrade_validate_certs | bool }}"
+  register: "_archivematica_upgrade_dashboard_api_endpoint"
+  until: _archivematica_upgrade_dashboard_api_endpoint.status == 200
+  retries: 12
+  delay: 5
+  no_log: true
+
+- name: "Require Dashboard processing configurations"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_dashboard_api_endpoint.json.processing_configurations is defined
+      - _archivematica_upgrade_dashboard_api_endpoint.json.processing_configurations | length > 0
+    fail_msg: "The Dashboard API did not return any processing configurations."
+  no_log: true
+
+- name: "Check the optional Dashboard search endpoint"
+  ansible.builtin.uri:
+    url: "{{ archivematica_upgrade_am_search_validation_url }}"
+    return_content: true
+    status_code: 200
+    validate_certs: "{{ archivematica_upgrade_validate_certs | bool }}"
+  register: "_archivematica_upgrade_dashboard_search_endpoint"
+  failed_when: false
+  when: archivematica_upgrade_am_search_validation_url | length > 0
+
+- name: "Require a valid Dashboard search response"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_dashboard_search_endpoint.status | default(0) | int == 200
+      - _archivematica_upgrade_dashboard_search_endpoint.json.iTotalRecords is defined
+      - _archivematica_upgrade_dashboard_search_endpoint.json.iTotalDisplayRecords is defined
+      - _archivematica_upgrade_dashboard_search_endpoint.json.aaData is defined
+      - _archivematica_upgrade_dashboard_search_endpoint.json.aaData is sequence
+      - _archivematica_upgrade_dashboard_search_endpoint.json.aaData is not string
+    fail_msg: >-
+      Dashboard search validation failed. Check
+      {{ archivematica_upgrade_am_search_validation_url }} against the
+      configured application search service.
+  when: archivematica_upgrade_am_search_validation_url | length > 0
+
+- name: "Check the Storage Service API endpoint"
+  ansible.builtin.uri:
+    url: "{{ _archivematica_upgrade_ss_api_url | regex_replace('/+$', '') }}/api/v2/pipeline/"
+    headers:
+      Authorization: "ApiKey {{ archivematica_upgrade_ss_api_user }}:{{ archivematica_upgrade_ss_api_key }}"
+      Content-Type: "application/json"
+    return_content: true
+    status_code: 200
+    validate_certs: "{{ archivematica_upgrade_validate_certs | bool }}"
+  register: "_archivematica_upgrade_ss_api_endpoint"
+  until: _archivematica_upgrade_ss_api_endpoint.status == 200
+  retries: 12
+  delay: 5
+  no_log: true
+
+- name: "Require at least one Storage Service pipeline"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_ss_api_endpoint.json.meta.total_count | int > 0
+    fail_msg: "The Storage Service API did not return a registered pipeline."
+  no_log: true
+
+- name: "Capture destination AIP storage stats"
+  ansible.builtin.include_tasks: "common/capture-aip-storage-stats.yml"
+  vars:
+    _archivematica_upgrade_aip_storage_es_url: "{{ _archivematica_upgrade_destination_es_url }}"
+    _archivematica_upgrade_aip_storage_output_file: "{{ _archivematica_upgrade_destination_aip_storage_stats_file }}"
+
+- name: "Capture destination application state"
+  ansible.builtin.include_tasks: "common/capture-application-state.yml"
+  vars:
+    _archivematica_upgrade_application_state_output_file: "{{ _archivematica_upgrade_destination_application_state_file }}"
+
+- name: "Verify Archival Storage AIP stats"
+  ansible.builtin.assert:
+    that:
+      - >-
+        _archivematica_upgrade_captured_aip_storage_stats.archival_storage ==
+        _archivematica_upgrade_source_aip_storage_stats.archival_storage
+    fail_msg: >-
+      Archival Storage AIP stats
+      {{ _archivematica_upgrade_captured_aip_storage_stats.archival_storage }}
+      do not match prepared source stats
+      {{ _archivematica_upgrade_source_aip_storage_stats.archival_storage }}.
+
+- name: "Verify Storage Service AIP counts"
+  ansible.builtin.assert:
+    that:
+      - >-
+        _archivematica_upgrade_captured_aip_storage_stats.storage_service ==
+        _archivematica_upgrade_source_aip_storage_stats.storage_service
+    fail_msg: >-
+      Storage Service AIP counts
+      {{ _archivematica_upgrade_captured_aip_storage_stats.storage_service }}
+      do not match prepared source counts
+      {{ _archivematica_upgrade_source_aip_storage_stats.storage_service }}.
+
+- name: "Verify Dashboard application state"
+  ansible.builtin.assert:
+    that:
+      - >-
+        _archivematica_upgrade_captured_application_state.dashboard ==
+        _archivematica_upgrade_source_application_state.dashboard
+    fail_msg: >-
+      Dashboard application state does not match the prepared source state.
+      Review {{ _archivematica_upgrade_source_application_state_file }} and
+      {{ _archivematica_upgrade_destination_application_state_file }}.
+
+- name: "Verify Storage Service application state"
+  ansible.builtin.assert:
+    that:
+      - >-
+        _archivematica_upgrade_captured_application_state.storage_service ==
+        _archivematica_upgrade_source_application_state.storage_service
+    fail_msg: >-
+      Storage Service application state does not match the prepared source
+      state. Review {{ _archivematica_upgrade_source_application_state_file }}
+      and {{ _archivematica_upgrade_destination_application_state_file }}.
+
+- name: "Record completed validation"
+  ansible.builtin.copy:
+    content: "{{ ansible_date_time.iso8601 }}\n"
+    dest: "{{ _archivematica_upgrade_checkpoint_dir }}/validated"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+    force: false
+
+- name: "Report required operator checks"
+  ansible.builtin.debug:
+    msg:
+      - "Automated validation completed."
+      - "Confirm Dashboard and Storage Service login manually."
+      - "Run a small transfer through AIP storage before cleanup."

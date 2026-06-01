@@ -1,0 +1,58 @@
+---
+- name: "Require a supported Archivematica upgrade workflow and role phase"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_supported_paths is mapping
+      - archivematica_upgrade_path in (_archivematica_upgrade_supported_paths.keys() | list)
+      - >-
+        archivematica_upgrade_phase in [
+          'check-readiness',
+          'prepare',
+          'cutover-before-install',
+          'cutover-after-install',
+          'migrate',
+          'validate',
+          'restore-backup-check',
+          'restore-backup',
+          'cleanup'
+        ]
+    fail_msg: >-
+      Unsupported Archivematica upgrade workflow or role phase. Set
+      archivematica_upgrade_path to one of
+      {{ _archivematica_upgrade_supported_paths.keys() | list | join(', ') }}
+      and select one supported role phase.
+
+- name: "Set selected Archivematica upgrade path metadata"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_path_config: >-
+      {{ _archivematica_upgrade_supported_paths[archivematica_upgrade_path] }}
+    _archivematica_upgrade_active_migrations: >-
+      {{
+        _archivematica_upgrade_supported_paths[archivematica_upgrade_path].migrations |
+        default([])
+      }}
+
+- name: "Require valid Archivematica upgrade path metadata"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_path_config is mapping
+      - _archivematica_upgrade_path_config.target is mapping
+      - _archivematica_upgrade_active_migrations is sequence
+      - _archivematica_upgrade_active_migrations is not string
+      - >-
+        _archivematica_upgrade_active_migrations |
+        reject('string') |
+        list |
+        length == 0
+      - >-
+        _archivematica_upgrade_active_migrations |
+        select('match', '^[a-z0-9][a-z0-9-]*$') |
+        list |
+        length == _archivematica_upgrade_active_migrations | length
+    fail_msg: >-
+      The selected Archivematica upgrade path metadata must define target
+      settings and an optional ordered migrations list.
+
+- name: "Run Archivematica upgrade role phase"
+  ansible.builtin.include_tasks:
+    file: "phases/{{ archivematica_upgrade_phase }}.yml"

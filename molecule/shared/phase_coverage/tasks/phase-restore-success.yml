@@ -1,0 +1,70 @@
+---
+- name: "Run restore success check-readiness phase"
+  ansible.builtin.include_tasks: "run-role-phase.yml"
+  vars:
+    _phase_coverage_phase: "check-readiness"
+
+- name: "Run restore success prepare phase"
+  ansible.builtin.include_tasks: "run-role-phase.yml"
+  vars:
+    _phase_coverage_phase: "prepare"
+
+- name: "Run restore success cutover-before-install phase"
+  ansible.builtin.include_tasks: "run-role-phase.yml"
+  vars:
+    _phase_coverage_phase: "cutover-before-install"
+
+- name: "Reinstall dummy Elasticsearch package for restore"
+  ansible.builtin.command:
+    argv:
+      - "dpkg"
+      - "-i"
+      - "{{ _phase_coverage_fixture_root }}/packages/elasticsearch_6.8.23_all.deb"
+  changed_when: false
+
+- name: "Create current Elasticsearch directories before restore"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: "directory"
+    owner: "root"
+    group: "root"
+    mode: "0755"
+  loop:
+    - "/etc/elasticsearch"
+    - "{{ archivematica_upgrade_es_data_dir }}"
+    - "/var/log/elasticsearch"
+
+- name: "Run restore-backup-check phase"
+  ansible.builtin.include_tasks: "run-role-phase.yml"
+  vars:
+    _phase_coverage_phase: "restore-backup-check"
+
+- name: "Run restore-backup phase"
+  ansible.builtin.include_tasks: "run-role-phase.yml"
+  vars:
+    _phase_coverage_phase: "restore-backup"
+
+- name: "Corrupt one restore backup artifact after restore"
+  ansible.builtin.copy:
+    content: "corrupted artifact\n"
+    dest: "{{ _archivematica_upgrade_backup_dir }}/MCP.sql.gz"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+
+- name: "Verify restore-backup-check rejects mismatched artifact metadata"
+  block:
+    - name: "Run restore-backup-check with a mismatched artifact"
+      ansible.builtin.include_tasks: "run-role-phase.yml"
+      vars:
+        _phase_coverage_phase: "restore-backup-check"
+
+    - name: "Fail when restore-backup-check accepts mismatched artifact"
+      ansible.builtin.fail:
+        msg: "restore-backup-check accepted mismatched artifact metadata"
+  rescue:
+    - name: "Require mismatched artifact metadata failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'metadata does not match' in (ansible_failed_result.msg | default(''))"

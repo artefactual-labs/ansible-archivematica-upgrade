@@ -1,0 +1,129 @@
+---
+- name: "Require Elasticsearch 8 target installer configuration"
+  ansible.builtin.assert:
+    that:
+      - >-
+        (elasticsearch_version | default('0'))
+        is version(_archivematica_upgrade_es_destination_min_version, '>=')
+      - >-
+        (elasticsearch_version | default('0'))
+        is version(_archivematica_upgrade_es_destination_max_version, '<')
+    fail_msg: >-
+      Configure the installer handoff to install Elasticsearch
+      {{ _archivematica_upgrade_es_destination_min_version }} or later and
+      earlier than {{ _archivematica_upgrade_es_destination_max_version }}
+      before running the Elasticsearch 6 to 8 migration.
+
+- name: "Read the packaged Elasticsearch version"
+  ansible.builtin.uri:
+    url: "{{ _archivematica_upgrade_source_es_url }}"
+    return_content: true
+  register: "_archivematica_upgrade_source_es_response"
+
+- name: "Require Elasticsearch 6 as the migration source"
+  ansible.builtin.assert:
+    that:
+      - >-
+        _archivematica_upgrade_source_es_response.json.version.number
+        is version(_archivematica_upgrade_es_source_min_version, '>=')
+      - >-
+        _archivematica_upgrade_source_es_response.json.version.number
+        is version(_archivematica_upgrade_es_source_max_version, '<')
+    fail_msg: >-
+      Expected the packaged Elasticsearch service at {{ _archivematica_upgrade_source_es_url }}
+      to be version 6.x before preparing the migration.
+
+- name: "Read configured Elasticsearch snapshot repositories"
+  ansible.builtin.uri:
+    url: "{{ _archivematica_upgrade_source_es_url }}/_snapshot/_all"
+    return_content: true
+  register: "_archivematica_upgrade_snapshot_repositories"
+
+- name: "Require Elasticsearch snapshot repositories to be removed"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_snapshot_repositories.json | length == 0
+    fail_msg: >-
+      Elasticsearch snapshot repositories remain configured. Review and remove
+      them before continuing with the Elasticsearch 6 to 8 migration.
+
+- name: "Require the temporary Elasticsearch port to be unused"
+  ansible.builtin.wait_for:
+    host: "127.0.0.1"
+    port: "{{ _archivematica_upgrade_es6_port }}"
+    state: "stopped"
+    timeout: 1
+
+- name: "Measure existing Elasticsearch data"
+  ansible.builtin.command:
+    argv:
+      - "du"
+      - "--summarize"
+      - "--bytes"
+      - "{{ _archivematica_upgrade_es_data_dir }}"
+  register: "_archivematica_upgrade_source_es_size"
+  changed_when: false
+
+- name: "Measure available upgrade storage"
+  ansible.builtin.shell: >-
+    set -o pipefail &&
+    df --output=avail --block-size=1 '{{ _archivematica_upgrade_storage_filesystem_path }}' |
+    tail -n 1
+  args:
+    executable: "/bin/bash"
+  register: "_archivematica_upgrade_available_bytes"
+  changed_when: false
+
+- name: "Measure available Elasticsearch data storage"
+  ansible.builtin.shell: >-
+    set -o pipefail &&
+    df --output=avail --block-size=1 '{{ _archivematica_upgrade_es_data_dir | dirname }}' |
+    tail -n 1
+  args:
+    executable: "/bin/bash"
+  register: "_archivematica_upgrade_es_data_available_bytes"
+  changed_when: false
+
+- name: "Calculate required Elasticsearch migration storage"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_required_bytes: >-
+      {{
+        (_archivematica_upgrade_source_es_size.stdout.split()[0] | int) *
+        (archivematica_upgrade_disk_multiplier | int) +
+        (archivematica_upgrade_disk_extra_bytes | int)
+      }}
+    _archivematica_upgrade_es_data_required_bytes: >-
+      {{
+        (_archivematica_upgrade_source_es_size.stdout.split()[0] | int) +
+        (archivematica_upgrade_disk_extra_bytes | int)
+      }}
+
+- name: "Require the configured upgrade-storage safety margin"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_available_bytes.stdout | trim | int >= _archivematica_upgrade_required_bytes | int
+    fail_msg: >-
+      Upgrade storage has {{ _archivematica_upgrade_available_bytes.stdout | trim }} bytes
+      free but requires at least {{ _archivematica_upgrade_required_bytes }} bytes. Set
+      archivematica_upgrade_root to a larger filesystem or review the sizing overrides.
+
+- name: "Require Elasticsearch 8 destination storage"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_es_data_available_bytes.stdout | trim | int >= _archivematica_upgrade_es_data_required_bytes | int
+    fail_msg: >-
+      Elasticsearch data filesystem has
+      {{ _archivematica_upgrade_es_data_available_bytes.stdout | trim }} bytes free
+      but requires at least {{ _archivematica_upgrade_es_data_required_bytes }} bytes
+      for the Elasticsearch 8 destination data. Increase its free space or review
+      the sizing override.
+
+- name: "Report Elasticsearch migration readiness sizing"
+  ansible.builtin.debug:
+    msg:
+      - "Elasticsearch source version: {{ _archivematica_upgrade_source_es_response.json.version.number }}"
+      - "Existing Elasticsearch bytes: {{ _archivematica_upgrade_source_es_size.stdout.split()[0] }}"
+      - "Available upgrade-storage bytes: {{ _archivematica_upgrade_available_bytes.stdout | trim }}"
+      - "Required upgrade-storage bytes: {{ _archivematica_upgrade_required_bytes }}"
+      - "Available Elasticsearch data-filesystem bytes: {{ _archivematica_upgrade_es_data_available_bytes.stdout | trim }}"
+      - "Required Elasticsearch 8 destination bytes: {{ _archivematica_upgrade_es_data_required_bytes }}"

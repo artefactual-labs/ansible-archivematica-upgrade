@@ -1,0 +1,72 @@
+---
+- name: "Create Elasticsearch migration checkpoint directory"
+  ansible.builtin.file:
+    path: "{{ _archivematica_upgrade_es_migration_checkpoint_dir }}"
+    state: "directory"
+    owner: "root"
+    group: "root"
+    mode: "0750"
+
+- name: "Check whether packaged Elasticsearch 6 was already removed"
+  ansible.builtin.stat:
+    path: "{{ _archivematica_upgrade_es6_system_removed_checkpoint }}"
+  register: "_archivematica_upgrade_es6_removed_checkpoint"
+
+- name: "Remove packaged Elasticsearch 6"
+  when: not _archivematica_upgrade_es6_removed_checkpoint.stat.exists
+  block:
+    - name: "Stop packaged Elasticsearch 6"
+      ansible.builtin.service:
+        name: "elasticsearch"
+        state: "stopped"
+
+    - name: "Move packaged Elasticsearch 6 directories aside"
+      ansible.builtin.shell: |
+        set -o errexit -o nounset -o pipefail
+        if [ -e '{{ item.source }}' ] && [ -e '{{ item.destination }}' ]; then
+          echo "Both {{ item.source }} and {{ item.destination }} exist" >&2
+          exit 1
+        elif [ -e '{{ item.source }}' ]; then
+          mv '{{ item.source }}' '{{ item.destination }}'
+          echo "moved"
+        elif [ -e '{{ item.destination }}' ]; then
+          echo "already-moved"
+        else
+          echo "missing"
+        fi
+      args:
+        executable: "/bin/bash"
+      loop:
+        - source: "{{ _archivematica_upgrade_es_config_dir }}"
+          destination: "{{ _archivematica_upgrade_preserved_es_config_dir }}"
+        - source: "{{ _archivematica_upgrade_es_data_dir }}"
+          destination: "{{ _archivematica_upgrade_preserved_es_data_dir }}"
+        - source: "{{ _archivematica_upgrade_es_log_dir }}"
+          destination: "{{ _archivematica_upgrade_preserved_es_log_dir }}"
+      register: "_archivematica_upgrade_moved_es6_directories"
+      changed_when: "_archivematica_upgrade_moved_es6_directories.stdout == 'moved'"
+
+    - name: "Uninstall packaged Elasticsearch 6"
+      ansible.builtin.package:
+        name: "elasticsearch"
+        state: "absent"
+
+    - name: "Require preserved packaged Elasticsearch 6 data"
+      ansible.builtin.stat:
+        path: "{{ _archivematica_upgrade_preserved_es_data_dir }}"
+      register: "_archivematica_upgrade_preserved_es6_data"
+
+    - name: "Fail when packaged Elasticsearch 6 data was not preserved"
+      ansible.builtin.assert:
+        that:
+          - _archivematica_upgrade_preserved_es6_data.stat.isdir | default(false)
+        fail_msg: "The packaged Elasticsearch 6 data directory was not preserved."
+
+    - name: "Record packaged Elasticsearch 6 removal"
+      ansible.builtin.copy:
+        content: "{{ ansible_date_time.iso8601 }}\n"
+        dest: "{{ _archivematica_upgrade_es6_system_removed_checkpoint }}"
+        owner: "root"
+        group: "root"
+        mode: "0640"
+        force: false

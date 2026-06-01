@@ -1,0 +1,186 @@
+---
+- name: "Load context for Elasticsearch readiness negative checks"
+  ansible.builtin.include_tasks: "load-context.yml"
+
+- name: "Set storage filesystem path for direct readiness hook checks"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_storage_filesystem_path: "{{ _phase_coverage_fixture_root }}"
+
+- name: "Verify readiness rejects invalid Elasticsearch target version"
+  block:
+    - name: "Run readiness hook with invalid target version"
+      ansible.builtin.include_tasks: "run-migration-file.yml"
+      vars:
+        _phase_coverage_migration_file: "check-readiness"
+        elasticsearch_version: "7.17.0"
+
+    - name: "Fail when readiness accepts invalid target version"
+      ansible.builtin.fail:
+        msg: "readiness accepted invalid target version"
+  rescue:
+    - name: "Require invalid target version failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'Elasticsearch 6 to 8 migration' in (ansible_failed_result.msg | default(''))"
+
+- name: "Enable source-not-es6 marker"
+  ansible.builtin.copy:
+    content: ""
+    dest: "{{ _phase_coverage_fixture_root }}/source-not-es6"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+
+- name: "Verify readiness rejects non-ES6 source"
+  block:
+    - name: "Run readiness hook with non-ES6 source"
+      ansible.builtin.include_tasks: "run-migration-file.yml"
+      vars:
+        _phase_coverage_migration_file: "check-readiness"
+
+    - name: "Fail when readiness accepts non-ES6 source"
+      ansible.builtin.fail:
+        msg: "readiness accepted non-ES6 source"
+  rescue:
+    - name: "Require non-ES6 source failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'version 6.x' in (ansible_failed_result.msg | default(''))"
+
+- name: "Disable source-not-es6 marker"
+  ansible.builtin.file:
+    path: "{{ _phase_coverage_fixture_root }}/source-not-es6"
+    state: "absent"
+
+- name: "Enable snapshot repository marker"
+  ansible.builtin.copy:
+    content: ""
+    dest: "{{ _phase_coverage_fixture_root }}/snapshot-repos"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+
+- name: "Verify readiness rejects configured snapshot repositories"
+  block:
+    - name: "Run readiness hook with snapshot repositories"
+      ansible.builtin.include_tasks: "run-migration-file.yml"
+      vars:
+        _phase_coverage_migration_file: "check-readiness"
+
+    - name: "Fail when readiness accepts snapshot repositories"
+      ansible.builtin.fail:
+        msg: "readiness accepted snapshot repositories"
+  rescue:
+    - name: "Require snapshot repository failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'snapshot repositories' in (ansible_failed_result.msg | default(''))"
+
+- name: "Disable snapshot repository marker"
+  ansible.builtin.file:
+    path: "{{ _phase_coverage_fixture_root }}/snapshot-repos"
+    state: "absent"
+
+- name: "Start temporary port fixture for readiness port guardrail"
+  ansible.builtin.command:
+    argv:
+      - "{{ _phase_coverage_fixture_root }}/phase_fixture_http.py"
+      - "9500"
+      - "{{ _phase_coverage_fixture_root }}"
+  async: 86400
+  poll: 0
+  changed_when: false
+
+- name: "Verify readiness rejects occupied temporary port"
+  block:
+    - name: "Run readiness hook with occupied temporary port"
+      ansible.builtin.include_tasks: "run-migration-file.yml"
+      vars:
+        _phase_coverage_migration_file: "check-readiness"
+
+    - name: "Fail when readiness accepts occupied temporary port"
+      ansible.builtin.fail:
+        msg: "readiness accepted occupied temporary port"
+  rescue:
+    - name: "Require occupied port failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+
+- name: "Stop temporary port fixture"
+  ansible.builtin.shell: |
+    set -o errexit -o nounset -o pipefail
+    pkill -f "{{ _phase_coverage_fixture_root }}/[p]hase_fixture_http.py 9500" || true
+  args:
+    executable: "/bin/bash"
+  changed_when: false
+
+- name: "Verify readiness rejects insufficient upgrade storage"
+  block:
+    - name: "Run readiness hook with insufficient storage"
+      ansible.builtin.include_tasks: "run-migration-file.yml"
+      vars:
+        _phase_coverage_migration_file: "check-readiness"
+        archivematica_upgrade_disk_extra_bytes: 999999999999999999
+
+    - name: "Fail when readiness accepts insufficient storage"
+      ansible.builtin.fail:
+        msg: "readiness accepted insufficient storage"
+  rescue:
+    - name: "Require insufficient storage failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'requires at least' in (ansible_failed_result.msg | default(''))"
+
+- name: "Verify cutover-after-install rejects missing ES6 removal checkpoint"
+  block:
+    - name: "Run cutover-after-install hook without checkpoint"
+      ansible.builtin.include_tasks: "run-migration-file.yml"
+      vars:
+        _phase_coverage_migration_file: "cutover-after-install"
+
+    - name: "Fail when cutover-after-install accepts missing checkpoint"
+      ansible.builtin.fail:
+        msg: "cutover-after-install accepted missing checkpoint"
+  rescue:
+    - name: "Require missing ES6 removal checkpoint failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'checkpoint is missing' in (ansible_failed_result.msg | default(''))"
+
+- name: "Seed migration checkpoint directory before cutover-before checks"
+  ansible.builtin.file:
+    path: "{{ _archivematica_upgrade_es_migration_checkpoint_dir }}"
+    state: "directory"
+    owner: "root"
+    group: "root"
+    mode: "0750"
+
+- name: "Create conflicting preserved Elasticsearch directory"
+  ansible.builtin.file:
+    path: "{{ _archivematica_upgrade_preserved_es_data_dir }}"
+    state: "directory"
+    owner: "root"
+    group: "root"
+    mode: "0755"
+
+- name: "Verify cutover-before-install rejects conflicting directories"
+  block:
+    - name: "Run cutover-before-install hook with conflicting directories"
+      ansible.builtin.include_tasks: "run-migration-file.yml"
+      vars:
+        _phase_coverage_migration_file: "cutover-before-install"
+
+    - name: "Fail when cutover-before-install accepts conflicting directories"
+      ansible.builtin.fail:
+        msg: "cutover-before-install accepted conflicting directories"
+  rescue:
+    - name: "Require conflicting directory failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined

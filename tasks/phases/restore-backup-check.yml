@@ -1,0 +1,156 @@
+---
+- name: "Load common Archivematica upgrade values"
+  ansible.builtin.include_tasks: "common/load-context.yml"
+
+- name: "Set base restore backup artifact names"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_restore_backup_base_artifact_names: >-
+      {{
+        [
+          archivematica_src_am_db_name ~ '.sql.gz',
+          (
+            archivematica_src_ss_db_name ~ '.sql.gz'
+            if (
+              archivematica_src_ss_db_mysql_enabled |
+              default(true) |
+              bool
+            )
+            else 'storage.db'
+          ),
+          'etc-before-upgrade.tgz',
+          _archivematica_upgrade_es_config_archive_artifact,
+          _archivematica_upgrade_es_data_archive_artifact,
+          _archivematica_upgrade_es_log_archive_artifact,
+          _archivematica_upgrade_processing_config_archive | basename
+        ]
+      }}
+
+- name: "Inspect restore backup manifest"
+  ansible.builtin.stat:
+    path: "{{ _archivematica_upgrade_backup_manifest_file }}"
+  register: "_archivematica_upgrade_restore_backup_manifest_file"
+
+- name: "Require restore backup manifest"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_restore_backup_manifest_file.stat.isreg | default(false)
+    fail_msg: >-
+      Run the prepare phase successfully before restore-backup-check. The
+      backup manifest is missing.
+
+- name: "Read restore backup manifest"
+  ansible.builtin.slurp:
+    src: "{{ _archivematica_upgrade_backup_manifest_file }}"
+  register: "_archivematica_upgrade_restore_backup_manifest_content"
+
+- name: "Parse restore backup manifest"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_restore_backup_manifest: >-
+      {{
+        _archivematica_upgrade_restore_backup_manifest_content.content |
+        b64decode |
+        from_json
+      }}
+
+- name: "Require restore backup manifest metadata"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_restore_backup_manifest is mapping
+      - _archivematica_upgrade_restore_backup_manifest.upgrade_id | default('') == archivematica_upgrade_id
+      - _archivematica_upgrade_restore_backup_manifest.artifacts | default({}) is mapping
+    fail_msg: >-
+      The backup manifest is invalid for this restore-backup-check phase.
+
+- name: "Initialize migration restore backup artifact names"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_migration_restore_backup_artifact_names: []
+
+- name: "Run restore-backup-check hooks for active migrations"
+  ansible.builtin.include_tasks: "common/run-migration-hooks.yml"
+  vars:
+    _archivematica_upgrade_hook_phase: "restore-backup-check"
+
+- name: "Set expected restore backup artifact names"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_restore_backup_artifact_names: >-
+      {{
+        _archivematica_upgrade_restore_backup_base_artifact_names +
+        _archivematica_upgrade_migration_restore_backup_artifact_names
+      }}
+
+- name: "Set restore backup manifest artifacts"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_restore_backup_manifest_artifacts: >-
+      {{ _archivematica_upgrade_restore_backup_manifest.artifacts }}
+
+- name: "Require restore backup manifest artifact entries"
+  ansible.builtin.assert:
+    that:
+      - >-
+        (
+          _archivematica_upgrade_restore_backup_artifact_names |
+          difference(
+            _archivematica_upgrade_restore_backup_manifest_artifacts | list
+          ) |
+          length
+        ) == 0
+    fail_msg: >-
+      The backup manifest does not list every required restore backup artifact.
+
+- name: "Inspect restore backup artifacts"
+  ansible.builtin.stat:
+    path: "{{ _archivematica_upgrade_backup_dir }}/{{ item }}"
+    checksum_algorithm: "sha256"
+  loop: "{{ _archivematica_upgrade_restore_backup_artifact_names }}"
+  register: "_archivematica_upgrade_restore_backup_artifact_states"
+
+- name: "Collect missing restore backup artifacts"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_missing_restore_backup_artifacts: >-
+      {{
+        _archivematica_upgrade_restore_backup_artifact_states.results |
+        rejectattr('stat.isreg') |
+        map(attribute='item') |
+        list
+      }}
+
+- name: "Require restore backup artifacts"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_missing_restore_backup_artifacts | length == 0
+    fail_msg: >-
+      Restore backup artifacts are missing:
+      {{ _archivematica_upgrade_missing_restore_backup_artifacts | join(', ') }}
+
+- name: "Initialize mismatched restore backup artifacts"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_mismatched_restore_backup_artifacts: []
+
+- name: "Collect mismatched restore backup artifacts"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_mismatched_restore_backup_artifacts: >-
+      {{
+        _archivematica_upgrade_mismatched_restore_backup_artifacts +
+        [item.item]
+      }}
+  loop: "{{ _archivematica_upgrade_restore_backup_artifact_states.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: >-
+    (
+      _archivematica_upgrade_restore_backup_manifest_artifacts[item.item].sha256 |
+      default('')
+    ) != item.stat.checksum or
+    (
+      _archivematica_upgrade_restore_backup_manifest_artifacts[item.item].bytes |
+      default(-1) |
+      int
+    ) != item.stat.size | int
+
+- name: "Require restore backup artifact metadata to match the manifest"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_mismatched_restore_backup_artifacts | length == 0
+    fail_msg: >-
+      backup artifact metadata does not match the backup manifest:
+      {{ _archivematica_upgrade_mismatched_restore_backup_artifacts | join(', ') }}

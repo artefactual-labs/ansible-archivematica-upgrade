@@ -1,0 +1,112 @@
+---
+- name: "Create Elasticsearch migration state directory"
+  ansible.builtin.file:
+    path: "{{ _archivematica_upgrade_es_migration_state_dir }}"
+    state: "directory"
+    owner: "root"
+    group: "root"
+    mode: "0750"
+
+- name: "Ensure the packaged Elasticsearch 6 service is running"
+  ansible.builtin.service:
+    name: "elasticsearch"
+    state: "started"
+
+- name: "Wait for the packaged Elasticsearch 6 port"
+  ansible.builtin.wait_for:
+    host: "127.0.0.1"
+    port: 9200
+    state: "started"
+    timeout: 60
+
+- name: "Wait for packaged Elasticsearch 6"
+  ansible.builtin.uri:
+    url: "{{ _archivematica_upgrade_source_es_url }}/_cluster/health?wait_for_status=yellow&timeout=60s"
+    return_content: true
+  register: "_archivematica_upgrade_source_es_health"
+  until:
+    - _archivematica_upgrade_source_es_health.status == 200
+    - not (_archivematica_upgrade_source_es_health.json.timed_out | default(false) | bool)
+  retries: 12
+  delay: 5
+
+- name: "Read the packaged Elasticsearch version"
+  ansible.builtin.uri:
+    url: "{{ _archivematica_upgrade_source_es_url }}"
+    return_content: true
+  register: "_archivematica_upgrade_source_es_response"
+
+- name: "Require Elasticsearch 6 as the migration source"
+  ansible.builtin.assert:
+    that:
+      - >-
+        _archivematica_upgrade_source_es_response.json.version.number
+        is version(_archivematica_upgrade_es_source_min_version, '>=')
+      - >-
+        _archivematica_upgrade_source_es_response.json.version.number
+        is version(_archivematica_upgrade_es_source_max_version, '<')
+    fail_msg: "The packaged Elasticsearch service must still be version 6.x during preparation."
+
+- name: "Collect Elasticsearch backup manifest values"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_backup_manifest_extra_values: >-
+      {{
+        (
+          _archivematica_upgrade_backup_manifest_extra_values |
+          default({})
+        ) |
+        combine({
+          'source_es_version':
+            _archivematica_upgrade_source_es_response.json.version.number
+        })
+      }}
+
+- name: "Store the Elasticsearch 6 source version"
+  ansible.builtin.copy:
+    content: "{{ _archivematica_upgrade_source_es_response.json.version.number }}\n"
+    dest: "{{ _archivematica_upgrade_source_version_file }}"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+    force: false
+
+- name: "Check whether source index counts were captured"
+  ansible.builtin.stat:
+    path: "{{ _archivematica_upgrade_source_counts_file }}"
+  register: "_archivematica_upgrade_source_counts_state"
+
+- name: "Read source Elasticsearch index counts"
+  ansible.builtin.uri:
+    url: "{{ _archivematica_upgrade_source_es_url }}/{{ item }}/_count"
+    status_code:
+      - 200
+      - 404
+    return_content: true
+  loop: "{{ _archivematica_upgrade_indices }}"
+  register: "_archivematica_upgrade_source_count_responses"
+  when: not _archivematica_upgrade_source_counts_state.stat.exists
+
+- name: "Initialize source Elasticsearch index counts"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_captured_source_counts: {}
+  when: not _archivematica_upgrade_source_counts_state.stat.exists
+
+- name: "Collect source Elasticsearch index counts"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_captured_source_counts: >-
+      {{
+        _archivematica_upgrade_captured_source_counts |
+        combine({item.item: item.json.count | default(0) | int})
+      }}
+  loop: "{{ _archivematica_upgrade_source_count_responses.results }}"
+  when: not _archivematica_upgrade_source_counts_state.stat.exists
+
+- name: "Store source Elasticsearch index counts"
+  ansible.builtin.copy:
+    content: "{{ _archivematica_upgrade_captured_source_counts | to_nice_json }}\n"
+    dest: "{{ _archivematica_upgrade_source_counts_file }}"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+    force: false
+  when: not _archivematica_upgrade_source_counts_state.stat.exists

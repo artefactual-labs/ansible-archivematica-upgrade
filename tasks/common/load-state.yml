@@ -1,0 +1,47 @@
+---
+- name: "Check required Archivematica upgrade state files"
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ _archivematica_upgrade_source_aip_storage_stats_file }}"
+    - "{{ _archivematica_upgrade_source_application_state_file }}"
+  register: "_archivematica_upgrade_state_files"
+
+- name: "Require prepared Archivematica upgrade state"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_state_files.results | map(attribute='stat.exists') | min
+    fail_msg: >-
+      Required upgrade state is missing under {{ _archivematica_upgrade_state_dir }}.
+      Run the prepare phase with the same archivematica_upgrade_id first.
+
+- name: "Read the prepared source AIP storage stats"
+  ansible.builtin.slurp:
+    src: "{{ _archivematica_upgrade_source_aip_storage_stats_file }}"
+  register: "_archivematica_upgrade_source_aip_storage_stats_content"
+
+- name: "Read the prepared source application state"
+  ansible.builtin.slurp:
+    src: "{{ _archivematica_upgrade_source_application_state_file }}"
+  register: "_archivematica_upgrade_source_application_state_content"
+
+- name: "Load prepared Archivematica upgrade state"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_source_aip_storage_stats: "{{ _archivematica_upgrade_source_aip_storage_stats_content.content | b64decode | from_json }}"
+    _archivematica_upgrade_source_application_state: "{{ _archivematica_upgrade_source_application_state_content.content | b64decode | from_json }}"
+
+- name: "Validate prepared Archivematica upgrade state"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_source_aip_storage_stats is mapping
+      - _archivematica_upgrade_source_aip_storage_stats.archival_storage is mapping
+      - _archivematica_upgrade_source_aip_storage_stats.storage_service is mapping
+      - _archivematica_upgrade_source_application_state is mapping
+      - _archivematica_upgrade_source_application_state.dashboard is mapping
+      - _archivematica_upgrade_source_application_state.storage_service is mapping
+    fail_msg: "Prepared upgrade state is invalid. Review the files under {{ _archivematica_upgrade_state_dir }}."
+
+- name: "Run load-state hooks for active migrations"
+  ansible.builtin.include_tasks: "common/run-migration-hooks.yml"
+  vars:
+    _archivematica_upgrade_hook_phase: "load-state"

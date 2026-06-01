@@ -1,0 +1,6 @@
+---
+- name: "Use generic Elasticsearch filesystem backup artifacts"
+  ansible.builtin.debug:
+    msg: >-
+      Elasticsearch configuration, data, and log backup artifacts are created by
+      the generic prepare phase.

@@ -1,0 +1,73 @@
+---
+- name: "Check required Elasticsearch migration state files"
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ _archivematica_upgrade_source_version_file }}"
+    - "{{ _archivematica_upgrade_source_counts_file }}"
+  register: "_archivematica_upgrade_es_state_files"
+
+- name: "Require prepared Elasticsearch migration state"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_es_state_files.results | map(attribute='stat.exists') | min
+    fail_msg: >-
+      Required Elasticsearch migration state is missing under
+      {{ _archivematica_upgrade_state_dir }}. Run the prepare phase with the
+      same archivematica_upgrade_id first.
+
+- name: "Read the prepared Elasticsearch source version"
+  ansible.builtin.slurp:
+    src: "{{ _archivematica_upgrade_source_version_file }}"
+  register: "_archivematica_upgrade_source_version_content"
+
+- name: "Read the prepared Elasticsearch source index counts"
+  ansible.builtin.slurp:
+    src: "{{ _archivematica_upgrade_source_counts_file }}"
+  register: "_archivematica_upgrade_source_counts_content"
+
+- name: "Check whether the Java 11 home directory was prepared"
+  ansible.builtin.stat:
+    path: "{{ _archivematica_upgrade_java_home_file }}"
+  register: "_archivematica_upgrade_java_home_file_state"
+
+- name: "Read the prepared Java 11 home directory"
+  ansible.builtin.slurp:
+    src: "{{ _archivematica_upgrade_java_home_file }}"
+  register: "_archivematica_upgrade_java_home_content"
+  when: _archivematica_upgrade_java_home_file_state.stat.exists
+
+- name: "Load prepared Elasticsearch migration state"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_source_es_version: "{{ _archivematica_upgrade_source_version_content.content | b64decode | trim }}"
+    _archivematica_upgrade_source_index_counts: "{{ _archivematica_upgrade_source_counts_content.content | b64decode | from_json }}"
+    _archivematica_upgrade_java_11_home: >-
+      {{
+        (
+          _archivematica_upgrade_java_home_content.content |
+          default('') |
+          b64decode |
+          trim
+        )
+        if _archivematica_upgrade_java_home_file_state.stat.exists
+        else ''
+      }}
+
+- name: "Validate prepared Elasticsearch migration state"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_source_es_version is match('^6\\.[0-9]+\\.[0-9]+$')
+      - (_archivematica_upgrade_source_index_counts.keys() | sort) == (_archivematica_upgrade_indices | sort)
+      - >-
+        _archivematica_upgrade_java_11_home | length == 0 or
+        _archivematica_upgrade_java_11_home is match('^/[A-Za-z0-9._/-]+$')
+    fail_msg: >-
+      Prepared Elasticsearch migration state is invalid. Review the files under
+      {{ _archivematica_upgrade_state_dir }}.
+
+- name: "Set temporary Elasticsearch 6 paths"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_es6_dir: "{{ _archivematica_upgrade_path }}/elasticsearch-{{ _archivematica_upgrade_source_es_version }}"
+    _archivematica_upgrade_es6_pidfile: >-
+      {{ _archivematica_upgrade_path }}/elasticsearch-{{ _archivematica_upgrade_source_es_version }}/elasticsearch-6x-tmp.pid
+    _archivematica_upgrade_es6_download: "{{ _archivematica_upgrade_path }}/elasticsearch-{{ _archivematica_upgrade_source_es_version }}.tar.gz"

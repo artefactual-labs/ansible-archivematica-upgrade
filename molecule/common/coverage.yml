@@ -1,0 +1,21 @@
+---
+# ansible-lint: skip_file
+# The common scenario validates shared role snippets plus the migration context
+# snippets they dispatch while testing migration hook behavior.
+record_paths:
+  - "tasks/common"
+  - "tasks/migrations/elasticsearch-6-to-8"
+scopes:
+  - "tasks/common"
+  - "tasks/migrations/elasticsearch-6-to-8/load-context.yml"
+  - "tasks/migrations/elasticsearch-6-to-8/load-state.yml"
+required_events:
+  - path: "tasks/common/load-context.yml"
+    name: "Validate Archivematica upgrade identifier"
+    status: "failed/rescued"
+  - path: "tasks/common/load-state.yml"
+    name: "Require prepared Archivematica upgrade state"
+    status: "failed/rescued"
+  - path: "tasks/common/require-idle.yml"
+    name: "Require no active or waiting MCP jobs"
+    status: "failed/rescued"

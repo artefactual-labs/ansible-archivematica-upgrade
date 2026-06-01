@@ -1,0 +1,107 @@
+---
+- name: "Create Archivematica apt keyring directory"
+  ansible.builtin.file:
+    path: "{{ archivematica_upgrade_archivematica_apt_keyring_path | dirname }}"
+    state: "directory"
+    owner: "root"
+    group: "root"
+    mode: "0755"
+  when: ansible_distribution == "Ubuntu"
+
+- name: "Download renewed Archivematica apt key"
+  ansible.builtin.get_url:
+    url: "{{ archivematica_upgrade_archivematica_apt_key_url }}"
+    dest: "{{ archivematica_upgrade_archivematica_apt_keyring_path }}.asc"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+  when: ansible_distribution == "Ubuntu"
+
+- name: "Dearmor renewed Archivematica apt key"
+  ansible.builtin.command:
+    argv:
+      - "gpg"
+      - "--dearmor"
+      - "--yes"
+      - "--output"
+      - "{{ archivematica_upgrade_archivematica_apt_keyring_path }}.tmp"
+      - "{{ archivematica_upgrade_archivematica_apt_keyring_path }}.asc"
+  changed_when: false
+  when: ansible_distribution == "Ubuntu"
+
+- name: "Compare renewed Archivematica apt keyring"
+  ansible.builtin.command:
+    argv:
+      - "cmp"
+      - "--silent"
+      - "{{ archivematica_upgrade_archivematica_apt_keyring_path }}.tmp"
+      - "{{ archivematica_upgrade_archivematica_apt_keyring_path }}"
+  register: "_archivematica_upgrade_archivematica_apt_keyring_cmp"
+  changed_when: false
+  failed_when: "_archivematica_upgrade_archivematica_apt_keyring_cmp.rc not in [0, 1, 2]"
+  when: ansible_distribution == "Ubuntu"
+
+- name: "Install renewed Archivematica apt keyring"
+  ansible.builtin.command:
+    argv:
+      - "install"
+      - "-o"
+      - "root"
+      - "-g"
+      - "root"
+      - "-m"
+      - "0644"
+      - "{{ archivematica_upgrade_archivematica_apt_keyring_path }}.tmp"
+      - "{{ archivematica_upgrade_archivematica_apt_keyring_path }}"
+  changed_when: true
+  when:
+    - ansible_distribution == "Ubuntu"
+    - _archivematica_upgrade_archivematica_apt_keyring_cmp.rc != 0
+
+- name: "Remove temporary Archivematica apt keyring"
+  ansible.builtin.file:
+    path: "{{ archivematica_upgrade_archivematica_apt_keyring_path }}.tmp"
+    state: "absent"
+  changed_when: false
+  when: ansible_distribution == "Ubuntu"
+
+- name: "Find apt source list files"
+  ansible.builtin.find:
+    paths: "/etc/apt"
+    patterns:
+      - "sources.list"
+      - "*.list"
+    file_type: "file"
+    recurse: true
+  register: "_archivematica_upgrade_apt_source_files"
+  when: ansible_distribution == "Ubuntu"
+
+- name: "Update existing Archivematica apt source signed-by values"
+  ansible.builtin.replace:
+    path: "{{ item.path }}"
+    regexp: '^(deb(?:-src)?\s+\[(?:[^]\s][^]\n]*?\s+)?)signed-by=[^]\s]+([^]\n]*\]\s+(?:https?://)?packages\.archivematica\.org/[^\n]*)$'
+    replace: '\1signed-by={{ archivematica_upgrade_archivematica_apt_keyring_path }}\2'
+  loop: "{{ _archivematica_upgrade_apt_source_files.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  when: ansible_distribution == "Ubuntu"
+
+- name: "Add signed-by to bracketed Archivematica apt sources"
+  ansible.builtin.replace:
+    path: "{{ item.path }}"
+    regexp: '^(deb(?:-src)?\s+\[)(?![^\]\n]*\bsigned-by=)([^\]\n]*)(\]\s+(?:https?://)?packages\.archivematica\.org/[^\n]*)$'
+    replace: '\1\2 signed-by={{ archivematica_upgrade_archivematica_apt_keyring_path }}\3'
+  loop: "{{ _archivematica_upgrade_apt_source_files.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  when: ansible_distribution == "Ubuntu"
+
+- name: "Add signed-by to unbracketed Archivematica apt sources"
+  ansible.builtin.replace:
+    path: "{{ item.path }}"
+    regexp: '^(deb(?:-src)?)(\s+)((?:https?://)?packages\.archivematica\.org/[^\n]*)$'
+    replace: '\1 [signed-by={{ archivematica_upgrade_archivematica_apt_keyring_path }}]\2\3'
+  loop: "{{ _archivematica_upgrade_apt_source_files.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  when: ansible_distribution == "Ubuntu"
