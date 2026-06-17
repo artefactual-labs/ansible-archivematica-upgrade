@@ -1,5 +1,5 @@
 ---
-- name: "Read Archival Storage AIP stats from Elasticsearch"
+- name: "Read Archival Storage AIP size stats from Elasticsearch"
   ansible.builtin.uri:
     url: "{{ _archivematica_upgrade_aip_storage_es_url | regex_replace('/+$', '') }}/aips/_search"
     method: "POST"
@@ -14,21 +14,19 @@
     return_content: true
   register: "_archivematica_upgrade_aip_search_response"
 
-- name: "Read Archival Storage AIP file stats from Elasticsearch"
+- name: "Read Archival Storage AIP count from Elasticsearch"
   ansible.builtin.uri:
-    url: "{{ _archivematica_upgrade_aip_storage_es_url | regex_replace('/+$', '') }}/aipfiles/_search"
-    method: "POST"
-    body_format: "json"
-    body:
-      size: 0
-      aggs:
-        aip_uuids:
-          terms:
-            field: "AIPUUID"
-            size: 1
+    url: "{{ _archivematica_upgrade_aip_storage_es_url | regex_replace('/+$', '') }}/aips/_count"
     status_code: 200
     return_content: true
-  register: "_archivematica_upgrade_aipfiles_search_response"
+  register: "_archivematica_upgrade_aip_count_response"
+
+- name: "Read Archival Storage AIP file count from Elasticsearch"
+  ansible.builtin.uri:
+    url: "{{ _archivematica_upgrade_aip_storage_es_url | regex_replace('/+$', '') }}/aipfiles/_count"
+    status_code: 200
+    return_content: true
+  register: "_archivematica_upgrade_aipfiles_count_response"
 
 - name: "Read Storage Service AIP package count"
   ansible.builtin.uri:
@@ -124,14 +122,14 @@
         {
           'archival_storage': {
             'aip_count': (
-              _archivematica_upgrade_aip_search_response.json.hits.total.value |
-              default(_archivematica_upgrade_aip_search_response.json.hits.total) |
+              _archivematica_upgrade_aip_count_response.json.count |
+              default(0) |
               int
             ),
             'aip_total_size_mb': _archivematica_upgrade_aip_search_response.json.aggregations.total.value | default(0) | float,
             'aip_file_count': (
-              _archivematica_upgrade_aipfiles_search_response.json.hits.total.value |
-              default(_archivematica_upgrade_aipfiles_search_response.json.hits.total) |
+              _archivematica_upgrade_aipfiles_count_response.json.count |
+              default(0) |
               int
             )
           },

@@ -9,7 +9,7 @@ MOLECULE_COLLECTIONS_PATH ?= $(MOLECULE_ANSIBLE_HOME)/collections
 MOLECULE_CMD = MOLECULE_ANSIBLE_HOME=$(MOLECULE_ANSIBLE_HOME) MOLECULE_CALLBACK_PLUGINS=$(MOLECULE_CALLBACK_PLUGINS) MOLECULE_COLLECTIONS_PATH=$(MOLECULE_COLLECTIONS_PATH) MOLECULE_COVERAGE_CONFIG=$(MOLECULE_COVERAGE_CONFIG) MOLECULE_COVERAGE_FILE=$(MOLECULE_COVERAGE_FILE) ANSIBLE_HOME=$(MOLECULE_ANSIBLE_HOME) ANSIBLE_COLLECTIONS_PATH=$(MOLECULE_COLLECTIONS_PATH):/usr/share/ansible/collections ANSIBLE_COLLECTIONS_SCAN_SYS_PATH=false uv run --python 3.12 --group molecule molecule
 MOLECULE_PHASE_COVERAGE_CONFIG ?= molecule/phase-coverage.yml
 MOLECULE_PHASE_ENFORCE_COVERAGE ?= true
-MOLECULE_PHASE_SCENARIOS ?= phase-lifecycle-mysql phase-lifecycle-sqlite phase-resume-checkpoints phase-restore-success phase-guardrails-negative elasticsearch-readiness-cutover-negative elasticsearch-runtime-negative elasticsearch-reindex-negative elasticsearch-restore-validate-cleanup-negative
+MOLECULE_PHASE_SCENARIOS ?= phase-lifecycle-mysql phase-lifecycle-sqlite phase-resume-checkpoints phase-restore-success phase-guardrails-negative elasticsearch-readiness-cutover-negative elasticsearch-runtime-negative elasticsearch-reindex-negative elasticsearch-restore-validate-cleanup-negative elasticsearch-search-total-cap
 MOLECULE_PHASE_COVERAGE_ARGS = $(foreach scenario,$(MOLECULE_PHASE_SCENARIOS),--coverage-file $(MOLECULE_ANSIBLE_HOME)/molecule/$(scenario)-task-coverage.jsonl)
 MOLECULE_SCENARIO ?= common
 MOLECULE_UBUNTU_2404_IMAGE ?= geerlingguy/docker-ubuntu2404-ansible@sha256:68af87df907605679a3fd572d0eb8b13330b160a3aa89fe9d89e31a4d8ef6ca0

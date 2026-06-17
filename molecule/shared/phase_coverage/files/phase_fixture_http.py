@@ -18,6 +18,7 @@ SOURCE_COUNTS = {
     "transfers": 0,
     "transferfiles": 0,
 }
+TRACK_TOTAL_HITS_CAP_AIPFILES = 554244
 
 
 class FixtureHandler(BaseHTTPRequestHandler):
@@ -110,11 +111,15 @@ class FixtureHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         route = self.route()
         if route.path.endswith("/_search") and route.index in SOURCE_COUNTS:
+            payload = self.request_json()
             count = self.index_count(route.kind, route.index)
+            hit_total = {"relation": "eq", "value": count}
+            if self.should_cap_search_total(route, payload, count):
+                hit_total = {"relation": "gte", "value": 10000}
             self.send_json(
                 {
                     "aggregations": {"total": {"value": 0.0}},
-                    "hits": {"total": {"value": count}},
+                    "hits": {"total": hit_total},
                 }
             )
             return
@@ -123,7 +128,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
             return
         if route.path in {"/_refresh", "/_flush"}:
             if self.has_marker("destination-source-counts"):
-                self.write_json("destination-counts.json", SOURCE_COUNTS)
+                self.write_json("destination-counts.json", self.source_counts())
             self.send_json({"ok": True})
             return
         self.send_empty(HTTPStatus.NOT_FOUND)
@@ -144,7 +149,9 @@ class FixtureHandler(BaseHTTPRequestHandler):
         self.write_json("reindex-task-ids.json", task_ids)
 
         destination_counts = self.read_json("destination-counts.json", {})
-        destination_counts[index] = SOURCE_COUNTS.get(index, 0)
+        destination_counts[index] = (
+            self.source_count(index) if index in SOURCE_COUNTS else 0
+        )
         self.write_json("destination-counts.json", destination_counts)
 
         self.send_json({"task": task_id})
@@ -166,7 +173,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
 
     def index_count(self, kind: str, index: str) -> int:
         if kind in {"es6", "es6-temp"}:
-            return SOURCE_COUNTS[index]
+            return self.source_count(index)
 
         destination_counts = self.read_json("destination-counts.json", {})
         if self.has_marker("destination-source-counts"):
@@ -178,6 +185,36 @@ class FixtureHandler(BaseHTTPRequestHandler):
             return count + (1 if count > 0 and index == "aips" else 0)
 
         return int(destination_counts.get(index, 0))
+
+    def source_counts(self) -> dict[str, int]:
+        return {index: self.source_count(index) for index in SOURCE_COUNTS}
+
+    def source_count(self, index: str) -> int:
+        if self.has_marker("es8-search-total-cap") and index == "aipfiles":
+            return TRACK_TOTAL_HITS_CAP_AIPFILES
+        return SOURCE_COUNTS[index]
+
+    def should_cap_search_total(
+        self,
+        route: FixtureRoute,
+        payload: dict[str, Any],
+        count: int,
+    ) -> bool:
+        return (
+            self.has_marker("es8-search-total-cap")
+            and route.kind == "es8"
+            and route.index == "aipfiles"
+            and count > 10000
+            and payload.get("track_total_hits") is not True
+        )
+
+    def request_json(self) -> dict[str, Any]:
+        body_length = int(self.headers.get("Content-Length", "0"))
+        body = self.rfile.read(body_length).decode("utf-8")
+        payload = json.loads(body or "{}")
+        if isinstance(payload, dict):
+            return payload
+        return {}
 
     def route(self) -> FixtureRoute:
         parsed = urlparse(self.path)

@@ -114,6 +114,7 @@ The available phase and migration scenarios are:
 | `elasticsearch-runtime-negative` | Temporary Elasticsearch 6 runtime failure branches. |
 | `elasticsearch-reindex-negative` | Remote reindex submission and polling failure branches. |
 | `elasticsearch-restore-validate-cleanup-negative` | Elasticsearch restore, validate, and cleanup failure branches. |
+| `elasticsearch-search-total-cap` | Regression coverage for Elasticsearch 8 capped `_search` hit totals. |
 
 ## Optional platforms
 
