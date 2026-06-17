@@ -74,6 +74,12 @@ class FixtureHandler(BaseHTTPRequestHandler):
             return
 
         if route.path.endswith("/_count") and route.index in SOURCE_COUNTS:
+            if self.has_marker("missing-transfer-indices") and route.index in {
+                "transfers",
+                "transferfiles",
+            }:
+                self.send_empty(HTTPStatus.NOT_FOUND)
+                return
             self.send_json({"count": self.index_count(route.kind, route.index)})
             return
 

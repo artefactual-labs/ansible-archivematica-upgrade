@@ -191,6 +191,8 @@
           - _molecule_common_aip_storage_state.archival_storage.aip_count | int == 3
           - _molecule_common_aip_storage_state.archival_storage.aip_file_count | int == 6
           - _molecule_common_aip_storage_state.archival_storage.aip_total_size_mb | float == 42.0
+          - _molecule_common_aip_storage_state.archival_storage.transfer_count | int == 2
+          - _molecule_common_aip_storage_state.archival_storage.transfer_file_count | int == 4
           - _molecule_common_aip_storage_state.storage_service.aip_count | int == 3
           - _molecule_common_aip_storage_state.storage_service.aip_counts_by_status['UPLOADED'] | int == 2
           - _molecule_common_aip_storage_state.storage_service.aip_counts_by_status['DEL_REQ'] | int == 1

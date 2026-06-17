@@ -28,6 +28,24 @@
     return_content: true
   register: "_archivematica_upgrade_aipfiles_count_response"
 
+- name: "Read optional Archival Storage transfer count from Elasticsearch"
+  ansible.builtin.uri:
+    url: "{{ _archivematica_upgrade_aip_storage_es_url | regex_replace('/+$', '') }}/transfers/_count"
+    status_code:
+      - 200
+      - 404
+    return_content: true
+  register: "_archivematica_upgrade_transfer_count_response"
+
+- name: "Read optional Archival Storage transfer file count from Elasticsearch"
+  ansible.builtin.uri:
+    url: "{{ _archivematica_upgrade_aip_storage_es_url | regex_replace('/+$', '') }}/transferfiles/_count"
+    status_code:
+      - 200
+      - 404
+    return_content: true
+  register: "_archivematica_upgrade_transferfiles_count_response"
+
 - name: "Read Storage Service AIP package count"
   ansible.builtin.uri:
     url: "{{ _archivematica_upgrade_ss_api_url | regex_replace('/+$', '') }}/api/v2/file/?package_type=AIP&limit=0"
@@ -120,19 +138,53 @@
     _archivematica_upgrade_captured_aip_storage_stats: >-
       {{
         {
-          'archival_storage': {
-            'aip_count': (
-              _archivematica_upgrade_aip_count_response.json.count |
-              default(0) |
-              int
-            ),
-            'aip_total_size_mb': _archivematica_upgrade_aip_search_response.json.aggregations.total.value | default(0) | float,
-            'aip_file_count': (
-              _archivematica_upgrade_aipfiles_count_response.json.count |
-              default(0) |
-              int
+          'archival_storage': (
+            (
+              {
+                'aip_count': (
+                  _archivematica_upgrade_aip_count_response.json.count |
+                  default(0) |
+                  int
+                ),
+                'aip_total_size_mb': _archivematica_upgrade_aip_search_response.json.aggregations.total.value | default(0) | float,
+                'aip_file_count': (
+                  _archivematica_upgrade_aipfiles_count_response.json.count |
+                  default(0) |
+                  int
+                )
+              } |
+              combine(
+                (
+                  {
+                    'transfer_count': (
+                      _archivematica_upgrade_transfer_count_response.json.count |
+                      int
+                    )
+                  }
+                  if (
+                    _archivematica_upgrade_transfer_count_response.status | int == 200 and
+                    _archivematica_upgrade_transfer_count_response.json.count | default(0) | int > 0
+                  )
+                  else {}
+                )
+              ) |
+              combine(
+                (
+                  {
+                    'transfer_file_count': (
+                      _archivematica_upgrade_transferfiles_count_response.json.count |
+                      int
+                    )
+                  }
+                  if (
+                    _archivematica_upgrade_transferfiles_count_response.status | int == 200 and
+                    _archivematica_upgrade_transferfiles_count_response.json.count | default(0) | int > 0
+                  )
+                  else {}
+                )
+              )
             )
-          },
+          ),
           'storage_service': {
             'aip_count': _archivematica_upgrade_effective_ss_aip_count_response.json.meta.total_count | default(0) | int,
             'aip_counts_by_status': _archivematica_upgrade_ss_aip_counts_by_status
