@@ -22,9 +22,23 @@ permissions:
   contents: read
 
 jobs:
-  molecule-phases:
-    name: Molecule phases
+  molecule-phase-scenario:
+    name: Molecule phase (${{ matrix.scenario }})
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario:
+          - phase-lifecycle-mysql
+          - phase-lifecycle-sqlite
+          - phase-resume-checkpoints
+          - phase-restore-success
+          - phase-guardrails-negative
+          - elasticsearch-readiness-cutover-negative
+          - elasticsearch-runtime-negative
+          - elasticsearch-reindex-negative
+          - elasticsearch-restore-validate-cleanup-negative
+          - elasticsearch-search-total-cap
     steps:
       - name: Check out repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -32,16 +46,52 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
 
-      - name: Run phase and migration Molecule scenarios
-        run: make molecule-test-phases
+      - name: Run phase and migration Molecule scenario
+        run: |
+          mkdir -p .ansible/molecule
+          make molecule-test-ubuntu2404 \
+            MOLECULE_SCENARIO="${{ matrix.scenario }}" \
+            MOLECULE_COVERAGE_CONFIG=molecule/phase-coverage.yml \
+            MOLECULE_COVERAGE_FILE="$GITHUB_WORKSPACE/.ansible/molecule/${{ matrix.scenario }}-task-coverage.jsonl"
+
+      - name: Upload phase coverage scenario artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: molecule-phase-coverage-${{ matrix.scenario }}
+          path: .ansible/molecule/${{ matrix.scenario }}-task-coverage.jsonl
+          if-no-files-found: ignore
+          include-hidden-files: true
+
+  molecule-phase-coverage:
+    name: Molecule phase coverage
+    runs-on: ubuntu-24.04
+    needs: molecule-phase-scenario
+    if: always()
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+
+      - name: Download phase coverage scenario artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: coverage/scenario-artifacts
+          pattern: molecule-phase-coverage-*
+          merge-multiple: true
 
       - name: Capture phase coverage summary
-        if: always()
         run: |
+          mkdir -p .ansible/molecule
           mkdir -p coverage
-          if [ -d .ansible/molecule ] && find .ansible/molecule -name "*-task-coverage.jsonl" -print -quit | grep -q .; then
-            make molecule-phase-coverage > coverage/phase-coverage.json
+          if ! [ -d coverage/scenario-artifacts ] || ! find coverage/scenario-artifacts -name "*-task-coverage.jsonl" -print -quit | grep -q .; then
+            printf '%s\n' "No phase coverage JSONL artifacts were downloaded." >&2
+            exit 1
           fi
+          find coverage/scenario-artifacts -name "*-task-coverage.jsonl" -exec cp {} .ansible/molecule/ \;
+          make molecule-phase-coverage > coverage/phase-coverage.json
 
       - name: Upload phase coverage artifacts
         if: always()
@@ -52,3 +102,4 @@ jobs:
             coverage/phase-coverage.json
             .ansible/molecule/*-task-coverage.jsonl
           if-no-files-found: ignore
+          include-hidden-files: true
