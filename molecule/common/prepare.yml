@@ -251,6 +251,12 @@
                       total = {"UPLOADED": 2, "DEL_REQ": 1}.get(status, 3)
                       self.send_json({"meta": {"total_count": total}})
                       return
+                  if parsed.path == "/aips/_count":
+                      self.send_json({"count": 3})
+                      return
+                  if parsed.path == "/aipfiles/_count":
+                      self.send_json({"count": 6})
+                      return
                   self.send_json({})
 
               def do_POST(self):

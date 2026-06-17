@@ -1,0 +1,11 @@
+---
+- name: "Enable capped Elasticsearch 8 search total fixture"
+  ansible.builtin.copy:
+    content: ""
+    dest: "{{ _phase_coverage_fixture_root }}/es8-search-total-cap"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+
+- name: "Run lifecycle with capped Elasticsearch 8 search totals"
+  ansible.builtin.include_tasks: "phase-lifecycle-mysql.yml"
