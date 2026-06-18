@@ -1,0 +1,20 @@
+---
+- name: "Ensure RedHat temporary Elasticsearch user supports su become"
+  ansible.builtin.user:
+    name: "{{ archivematica_upgrade_es6_user }}"
+    home: "/var/lib/{{ archivematica_upgrade_es6_user }}"
+    create_home: true
+    shell: "/bin/bash"
+  when: ansible_os_family == "RedHat"
+
+- name: "Verify RedHat temporary Elasticsearch su become"
+  ansible.builtin.command:
+    argv:
+      - "/bin/bash"
+      - "-lc"
+      - "true"
+  become: true
+  become_method: "su"
+  become_user: "{{ archivematica_upgrade_es6_user }}"
+  changed_when: false
+  when: ansible_os_family == "RedHat"

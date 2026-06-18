@@ -14,6 +14,12 @@ _phase_coverage_processing_config_dir: "{{ _phase_coverage_fixture_root }}/proce
 _phase_coverage_storage_db: "/var/archivematica/storage-service/storage.db"
 _phase_coverage_apt_keyring: "{{ _phase_coverage_fixture_root }}/keyrings/archivematica-archive-keyring.gpg"
 _phase_coverage_coverage_file: "{{ lookup('env', 'MOLECULE_COVERAGE_FILE') }}"
+_phase_coverage_java_11_home: >-
+  {{
+    '/usr/lib/jvm/java-11-openjdk-amd64'
+    if ansible_os_family | default('Debian') == 'Debian'
+    else '/usr/lib/jvm/java-11-openjdk'
+  }}
 
 archivematica_upgrade_id: "phase-coverage"
 archivematica_upgrade_root: "{{ _phase_coverage_fixture_root }}/upgrade-root"
@@ -27,7 +33,7 @@ archivematica_upgrade_es_data_dir: "{{ _phase_coverage_fixture_root }}/elasticse
 archivematica_upgrade_es6_user: "molecule-es6"
 archivematica_upgrade_es6_archive_url: "{{ _phase_coverage_es6_archive_url }}"
 archivematica_upgrade_es6_checksum: ""
-archivematica_upgrade_java_11_home: "/usr/lib/jvm/java-11-openjdk-amd64"
+archivematica_upgrade_java_11_home: "{{ _phase_coverage_java_11_home }}"
 archivematica_upgrade_archivematica_apt_key_url: "{{ _phase_coverage_http_url }}/GPG-KEY-archivematica"
 archivematica_upgrade_archivematica_apt_keyring_path: "{{ _phase_coverage_apt_keyring }}"
 archivematica_upgrade_mysqldump_timeout: 30

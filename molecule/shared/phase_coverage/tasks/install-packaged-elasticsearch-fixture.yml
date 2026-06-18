@@ -1,0 +1,4 @@
+---
+- name: "Install packaged Elasticsearch fixture for OS family"
+  ansible.builtin.include_tasks: >-
+    install-packaged-elasticsearch-fixture-{{ ansible_os_family | lower }}.yml

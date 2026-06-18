@@ -7,7 +7,7 @@ dependency:
 driver:
   name: "docker"
 platforms:
-  - name: "instance"
+  - name: "${MOLECULE_PLATFORM_NAME:-instance}"
     image: "${MOLECULE_IMAGE:-geerlingguy/docker-ubuntu2404-ansible@sha256:68af87df907605679a3fd572d0eb8b13330b160a3aa89fe9d89e31a4d8ef6ca0}"
     pre_build_image: true
     privileged: true

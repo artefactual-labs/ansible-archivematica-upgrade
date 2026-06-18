@@ -2,9 +2,9 @@
 
 The role uses Molecule for task-level regression coverage. The default
 development target is Ubuntu 24.04 using a pinned
-`geerlingguy/docker-ubuntu2404-ansible` image digest. The lower-level platform
-targets can still run a scenario on Ubuntu 22.04 or Rocky Linux 9 when that
-coverage is needed.
+`geerlingguy/docker-ubuntu2404-ansible` image digest. Phase and migration
+lifecycle coverage is enforced on Ubuntu 24.04 and Rocky Linux 9. Rocky Linux
+9 is the automated Red Hat-family compatibility target.
 
 The scenarios are hermetic. They create temporary Archivematica files,
 service units, package metadata, database state, API responses, APT key data,
@@ -20,6 +20,19 @@ test commands do not require a manually managed virtual environment.
 
 Molecule runtime files, downloaded collections, and coverage JSONL files are
 written under `.ansible/`.
+
+## Test matrix
+
+The required automated test matrix for phase and migration lifecycle coverage
+is:
+
+| Platform | Purpose |
+| --- | --- |
+| Ubuntu 24.04 | Default Debian-family lifecycle coverage target. |
+| Rocky Linux 9 | Red Hat-family lifecycle coverage target. |
+
+Ubuntu 22.04 remains an optional manual compatibility target. RHEL is not part
+of the automated test matrix for this repository.
 
 ## Platform images
 
@@ -61,11 +74,39 @@ coverage:
 make molecule-test-phases
 ```
 
-Show aggregate coverage from the latest phase and migration scenario runs
-without rerunning containers:
+`make molecule-test-phases` is the default alias for:
+
+```sh
+make molecule-test-phases-ubuntu2404
+```
+
+Run the required Red Hat-family phase and migration coverage target with:
+
+```sh
+make molecule-test-phases-rockylinux9
+```
+
+The Ubuntu 24.04 and Rocky Linux 9 phase suites can run in parallel. The
+Makefile gives their Molecule runs distinct platform names, coverage files, and
+ephemeral runtime directories, so Docker containers and rendered scenario
+metadata do not collide:
+
+```sh
+make -j2 molecule-test-phases-ubuntu2404 molecule-test-phases-rockylinux9
+```
+
+Show aggregate coverage from the latest Ubuntu 24.04 phase and migration
+scenario runs without rerunning containers:
 
 ```sh
 make molecule-phase-coverage
+```
+
+Use explicit platform coverage targets for other phase matrix entries:
+
+```sh
+make molecule-phase-coverage-ubuntu2404
+make molecule-phase-coverage-rockylinux9
 ```
 
 Run the full local validation set before submitting a change:
@@ -74,6 +115,9 @@ Run the full local validation set before submitting a change:
 make molecule-test
 make molecule-coverage
 make molecule-test-phases
+make molecule-test-phases-rockylinux9
+make molecule-phase-coverage-ubuntu2404
+make molecule-phase-coverage-rockylinux9
 pre-commit run --all-files
 git diff --check
 ```
@@ -96,7 +140,7 @@ coverage contract expects the full scenario set. The target still provides the
 shared phase coverage configuration and the per-scenario coverage output path.
 
 ```sh
-make molecule-test-phases \
+make molecule-test-phases-ubuntu2404 \
   MOLECULE_PHASE_SCENARIOS="phase-lifecycle-mysql" \
   MOLECULE_PHASE_ENFORCE_COVERAGE=false
 ```
@@ -116,36 +160,75 @@ The available phase and migration scenarios are:
 | `elasticsearch-restore-validate-cleanup-negative` | Elasticsearch restore, validate, and cleanup failure branches. |
 | `elasticsearch-search-total-cap` | Regression coverage for Elasticsearch 8 capped `_search` hit totals. |
 
+## Platform-specific phase coverage files
+
+Phase and migration coverage files include the platform name so separate
+platform runs do not overwrite each other. Examples:
+
+- `.ansible/molecule/ubuntu2404-phase-lifecycle-mysql-task-coverage.jsonl`
+- `.ansible/molecule/rockylinux9-phase-lifecycle-mysql-task-coverage.jsonl`
+
+`make molecule-phase-coverage` uses `MOLECULE_PHASE_PLATFORM=ubuntu2404` by
+default. Override that variable to inspect another platform's latest phase
+coverage report:
+
+```sh
+make molecule-phase-coverage MOLECULE_PHASE_PLATFORM=rockylinux9
+```
+
+Coverage must be enforced per platform. Do not aggregate Ubuntu and Rocky files
+into one verification command, because aggregation can hide a task that only ran
+on one platform while being skipped on the other.
+
 ## Optional platforms
 
-Ubuntu 24.04 is the default and is what the aggregate phase target uses. To run
-a single scenario on another supported image, use the lower-level platform
-target.
+Ubuntu 22.04 is optional manual compatibility coverage. To run a single common
+scenario on another supported image, use the lower-level platform target.
 
 Common scenario examples:
 
 ```sh
 make molecule-test-ubuntu2204
-make molecule-test-rockylinux9
 ```
 
-Phase scenario example:
+Ubuntu 22.04 phase scenario example:
 
 ```sh
-make molecule-test-ubuntu2204 \
-  MOLECULE_SCENARIO=phase-lifecycle-mysql \
-  MOLECULE_COVERAGE_CONFIG=molecule/phase-coverage.yml \
-  MOLECULE_COVERAGE_FILE=.ansible/molecule/phase-lifecycle-mysql-task-coverage.jsonl
+make molecule-test-phases-ubuntu2204 \
+  MOLECULE_PHASE_SCENARIOS="phase-lifecycle-mysql" \
+  MOLECULE_PHASE_ENFORCE_COVERAGE=false
 ```
 
 The phase aggregate coverage report can consume the JSONL file produced by
-that run. Use this only when the selected scenarios cover the configured
-aggregate contract:
+that run. Use this only when the selected scenarios and platform cover the
+configured aggregate contract:
 
 ```sh
 make molecule-phase-coverage \
+  MOLECULE_PHASE_PLATFORM=ubuntu2204 \
   MOLECULE_PHASE_SCENARIOS="phase-lifecycle-mysql"
 ```
+
+## CI workflows
+
+Pull requests run these required checks:
+
+- `Static checks`
+- `Molecule common`, on Ubuntu 24.04
+- `Molecule phase coverage (ubuntu2404)`
+- `Molecule phase coverage (rockylinux9)`
+- `Validate GitHub Action pinning`, when workflows change
+
+The phase workflow runs each scenario separately for Ubuntu 24.04 and Rocky
+Linux 9, uploads per-scenario JSONL coverage files, then verifies each
+platform's aggregate coverage in a separate job. The final coverage artifacts
+are:
+
+- `molecule-ubuntu2404-phase-coverage`
+- `molecule-rockylinux9-phase-coverage`
+
+The manual `Molecule compatibility` workflow runs Ubuntu 22.04 common and phase
+compatibility coverage.
 
 ## Coverage model
 
@@ -177,6 +260,11 @@ Coverage contracts live with the scenarios:
 They are used when a test deliberately runs a task inside `block`/`rescue` and
 the callback should prove that the failure branch was exercised.
 
+`allowed_skips` entries document intentional platform-specific skips. Unlisted
+tasks that are only observed as `skipped` fail coverage verification, so
+Ubuntu-only or Red Hat-family-only behavior must be explicit in the scenario
+coverage contract.
+
 ## Fixture design
 
 The common scenario in `molecule/common` tests shared snippets directly with
@@ -190,6 +278,17 @@ host, starts local HTTP fixtures, installs command fixtures ahead of the normal
 `PATH`, creates service units, seeds package metadata, and builds temporary
 Elasticsearch data. Each scenario imports the shared playbooks and selects one
 case task file with `phase_coverage_case`.
+
+Package fixtures are OS-family specific. Debian-family containers build and
+install local `.deb` fixtures with `dpkg-deb` and `dpkg`. Red Hat-family
+containers copy a committed local Yum repository from
+`molecule/shared/phase_coverage/files/rpms`, disable external Yum repositories,
+and install the noarch RPM fixtures directly with `rpm`. The local repository
+stays enabled so role package tasks resolve against the fixture packages instead
+of external repositories. The harness does not install package build tools or
+download packages during fixture setup. Scenario case files should use the
+shared packaged Elasticsearch helper tasks instead of calling a platform package
+manager directly.
 
 The shared phase fixture root is `/tmp/archivematica-upgrade-phase` inside the
 container. Scenario cleanup stops fixture HTTP processes and removes that

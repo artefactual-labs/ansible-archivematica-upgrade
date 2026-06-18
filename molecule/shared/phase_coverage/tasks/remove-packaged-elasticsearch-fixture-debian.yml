@@ -1,0 +1,9 @@
+---
+- name: "Remove Debian packaged Elasticsearch fixture"
+  ansible.builtin.command: # noqa: command-instead-of-module
+    argv:
+      - "dpkg"
+      - "-r"
+      - "elasticsearch"
+  changed_when: false
+  failed_when: false

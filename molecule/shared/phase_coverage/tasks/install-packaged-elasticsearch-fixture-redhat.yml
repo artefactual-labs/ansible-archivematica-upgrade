@@ -1,0 +1,10 @@
+---
+- name: "Install RedHat packaged Elasticsearch fixture"
+  ansible.builtin.command: # noqa: command-instead-of-module
+    argv:
+      - "rpm"
+      - "-Uvh"
+      - "--replacepkgs"
+      - "--nosignature"
+      - "{{ _phase_coverage_fixture_root }}/packages/elasticsearch-6.8.23-1.noarch.rpm"
+  changed_when: false

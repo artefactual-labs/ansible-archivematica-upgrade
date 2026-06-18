@@ -22,7 +22,9 @@
     _archivematica_upgrade_missing_application_services: >-
       {{ _archivematica_upgrade_missing_application_services + [item] }}
   loop: "{{ _archivematica_upgrade_application_services }}"
-  when: item + '.service' not in ansible_facts.services
+  when:
+    - item + '.service' not in (ansible_facts.services | default({}))
+    - item not in (ansible_facts.services | default({}))
 
 - name: "Require installed Archivematica application services"
   ansible.builtin.assert:
@@ -55,7 +57,13 @@
     _archivematica_upgrade_stopped_application_services: >-
       {{ _archivematica_upgrade_stopped_application_services + [item] }}
   loop: "{{ _archivematica_upgrade_application_services }}"
-  when: ansible_facts.services[item + '.service'].state != 'running'
+  when: >-
+    (
+      (ansible_facts.services | default({})).get(
+        item + '.service',
+        (ansible_facts.services | default({})).get(item, {})
+      )
+    ).state | default('missing') != 'running'
 
 - name: "Require running Archivematica application services"
   ansible.builtin.assert:

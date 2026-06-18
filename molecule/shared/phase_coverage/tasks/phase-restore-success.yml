@@ -14,13 +14,8 @@
   vars:
     _phase_coverage_phase: "cutover-before-install"
 
-- name: "Reinstall dummy Elasticsearch package for restore"
-  ansible.builtin.command:
-    argv:
-      - "dpkg"
-      - "-i"
-      - "{{ _phase_coverage_fixture_root }}/packages/elasticsearch_6.8.23_all.deb"
-  changed_when: false
+- name: "Reinstall packaged Elasticsearch fixture for restore"
+  ansible.builtin.include_tasks: "install-packaged-elasticsearch-fixture.yml"
 
 - name: "Create current Elasticsearch directories before restore"
   ansible.builtin.file:

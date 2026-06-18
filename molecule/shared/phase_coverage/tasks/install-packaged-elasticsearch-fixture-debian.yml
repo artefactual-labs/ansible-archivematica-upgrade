@@ -1,0 +1,8 @@
+---
+- name: "Install Debian packaged Elasticsearch fixture"
+  ansible.builtin.command: # noqa: command-instead-of-module
+    argv:
+      - "dpkg"
+      - "-i"
+      - "{{ _phase_coverage_fixture_root }}/packages/elasticsearch_6.8.23_all.deb"
+  changed_when: false
