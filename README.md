@@ -62,6 +62,8 @@ database names, Storage Service database mode, service configuration, and
 version checks. It supports Ubuntu, Rocky Linux, and Red Hat hosts. The
 `validate` phase also uses the configured Dashboard and Storage Service API
 credentials to verify application API responses after the upgrade.
+Automated phase and migration coverage runs on Ubuntu 24.04 and Rocky Linux 9;
+Rocky Linux 9 is used as the automated Red Hat-family compatibility target.
 Review `archivematica_upgrade_application_services` for each deployment.
 Operators must include every local unit that can submit work, expose the app,
 or depend on Elasticsearch during cutover. Installed common local units such as

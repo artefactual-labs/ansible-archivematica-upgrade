@@ -40,7 +40,9 @@
       {{ _archivematica_upgrade_unmanaged_common_local_services + [item] }}
   loop: "{{ archivematica_upgrade_common_local_services }}"
   when:
-    - item + '.service' in ansible_facts.services
+    - >-
+      item + '.service' in (ansible_facts.services | default({})) or
+      item in (ansible_facts.services | default({}))
     - item not in _archivematica_upgrade_application_services
     - item not in archivematica_upgrade_ignored_common_local_services
 

@@ -5,14 +5,8 @@
 - name: "Load prepared state for restore validate cleanup checks"
   ansible.builtin.include_tasks: "load-state.yml"
 
-- name: "Remove dummy Elasticsearch package for restore package guardrail"
-  ansible.builtin.command:
-    argv:
-      - "dpkg"
-      - "-r"
-      - "elasticsearch"
-  changed_when: false
-  failed_when: false
+- name: "Remove packaged Elasticsearch fixture for restore package guardrail"
+  ansible.builtin.include_tasks: "remove-packaged-elasticsearch-fixture.yml"
 
 - name: "Verify restore-backup-before-services rejects missing packaged ES6"
   block:

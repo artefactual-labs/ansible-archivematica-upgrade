@@ -1,0 +1,9 @@
+---
+- name: "Remove RedHat packaged Elasticsearch fixture"
+  ansible.builtin.command: # noqa: command-instead-of-module
+    argv:
+      - "rpm"
+      - "-e"
+      - "elasticsearch"
+  changed_when: false
+  failed_when: false

@@ -1,0 +1,13 @@
+---
+- name: "Require supported packaged Elasticsearch fixture version"
+  ansible.builtin.assert:
+    that:
+      - _phase_coverage_packaged_elasticsearch_version == "6.8.23"
+    fail_msg: >-
+      The phase coverage package fixture only provides Elasticsearch 6.8.23.
+
+- name: "Remove existing packaged Elasticsearch fixture before version reset"
+  ansible.builtin.include_tasks: "remove-packaged-elasticsearch-fixture.yml"
+
+- name: "Install requested packaged Elasticsearch fixture version"
+  ansible.builtin.include_tasks: "install-packaged-elasticsearch-fixture.yml"

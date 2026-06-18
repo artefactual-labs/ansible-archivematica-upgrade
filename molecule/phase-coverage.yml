@@ -9,6 +9,9 @@ record_paths:
 scopes:
   - "tasks/phases"
   - "tasks/migrations/elasticsearch-6-to-8"
+# Any task that is expected to be skipped on a specific platform must be listed
+# here with a reason. Unlisted only-skipped tasks fail coverage verification.
+allowed_skips: []
 required_events:
   - path: "tasks/phases/prepare.yml"
     name: "Require snapshot confirmation before preparing the upgrade"

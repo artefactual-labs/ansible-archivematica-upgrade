@@ -1,0 +1,91 @@
+---
+- name: "Create dummy OpenJDK Debian package tree"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: "directory"
+    owner: "root"
+    group: "root"
+    mode: "0755"
+  loop:
+    - "{{ _phase_coverage_fixture_root }}/package-build/openjdk-11-jdk/DEBIAN"
+    - "{{ _phase_coverage_fixture_root }}/package-build/openjdk-11-jdk{{ archivematica_upgrade_java_11_home }}/bin"
+
+- name: "Create dummy OpenJDK Debian package metadata"
+  ansible.builtin.copy:
+    dest: "{{ _phase_coverage_fixture_root }}/package-build/openjdk-11-jdk/DEBIAN/control"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+    content: |
+      Package: openjdk-11-jdk
+      Version: 11.0.0
+      Section: misc
+      Priority: optional
+      Architecture: all
+      Maintainer: Molecule <molecule@example.test>
+      Description: Phase coverage Java fixture
+
+- name: "Create dummy Debian Java executable"
+  ansible.builtin.copy:
+    dest: "{{ _phase_coverage_fixture_root }}/package-build/openjdk-11-jdk{{ archivematica_upgrade_java_11_home }}/bin/java"
+    owner: "root"
+    group: "root"
+    mode: "0755"
+    content: |
+      #!/bin/sh
+      printf 'openjdk version "11.0.0"\n' >&2
+
+- name: "Create dummy Elasticsearch Debian package tree"
+  ansible.builtin.file:
+    path: "{{ _phase_coverage_fixture_root }}/package-build/elasticsearch/DEBIAN"
+    state: "directory"
+    owner: "root"
+    group: "root"
+    mode: "0755"
+
+- name: "Create dummy Elasticsearch Debian package metadata"
+  ansible.builtin.copy:
+    dest: "{{ _phase_coverage_fixture_root }}/package-build/elasticsearch/DEBIAN/control"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+    content: |
+      Package: elasticsearch
+      Version: 6.8.23
+      Section: misc
+      Priority: optional
+      Architecture: all
+      Maintainer: Molecule <molecule@example.test>
+      Description: Phase coverage Elasticsearch package fixture
+
+# Use platform package-manager commands directly so fixture setup exercises the
+# local package database without repository resolution or package downloads.
+- name: "Build dummy Debian packages"
+  ansible.builtin.command: # noqa: command-instead-of-module
+    argv:
+      - "dpkg-deb"
+      - "--build"
+      - "{{ _phase_coverage_fixture_root }}/package-build/{{ item.name }}"
+      - "{{ _phase_coverage_fixture_root }}/packages/{{ item.name }}_{{ item.version }}_all.deb"
+    creates: "{{ _phase_coverage_fixture_root }}/packages/{{ item.name }}_{{ item.version }}_all.deb"
+  loop:
+    - name: "openjdk-11-jdk"
+      version: "11.0.0"
+    - name: "elasticsearch"
+      version: "6.8.23"
+
+- name: "Install dummy Debian packages"
+  ansible.builtin.command: # noqa: command-instead-of-module
+    argv:
+      - "dpkg"
+      - "-i"
+      - "{{ _phase_coverage_fixture_root }}/packages/{{ item.name }}_{{ item.version }}_all.deb"
+  changed_when: >-
+    'install' in _phase_coverage_dpkg_install.stdout or
+    'unpack' in _phase_coverage_dpkg_install.stdout
+  register: "_phase_coverage_dpkg_install"
+  loop:
+    - name: "openjdk-11-jdk"
+      version: "11.0.0"
+    - name: "elasticsearch"
+      version: "6.8.23"

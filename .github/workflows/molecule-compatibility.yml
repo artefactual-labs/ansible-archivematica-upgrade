@@ -9,18 +9,24 @@ permissions:
 
 jobs:
   molecule-compatibility:
-    name: Molecule ${{ matrix.platform }}
+    name: Molecule ${{ matrix.platform }} ${{ matrix.scope }}
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: "ubuntu-22.04"
+          - platform: "ubuntu2204"
+            scope: "common"
             make_target: "molecule-test-ubuntu2204"
-            coverage_name: "ubuntu2204"
-          - platform: "rockylinux-9"
-            make_target: "molecule-test-rockylinux9"
-            coverage_name: "rockylinux9"
+            coverage_target: "molecule-coverage"
+            coverage_name: "ubuntu2204-common"
+            coverage_glob: "common-task-coverage.jsonl"
+          - platform: "ubuntu2204"
+            scope: "phases"
+            make_target: "molecule-test-phases-ubuntu2204"
+            coverage_target: "molecule-phase-coverage-ubuntu2204"
+            coverage_name: "ubuntu2204-phase"
+            coverage_glob: "ubuntu2204-*-task-coverage.jsonl"
     steps:
       - name: Check out repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -35,8 +41,8 @@ jobs:
         if: always()
         run: |
           mkdir -p coverage
-          if [ -f .ansible/molecule/common-task-coverage.jsonl ]; then
-            make molecule-coverage > coverage/${{ matrix.coverage_name }}-coverage.json
+          if [ -d .ansible/molecule ] && find .ansible/molecule -name "${{ matrix.coverage_glob }}" -print -quit | grep -q .; then
+            make ${{ matrix.coverage_target }} > coverage/${{ matrix.coverage_name }}-coverage.json
           fi
 
       - name: Upload compatibility coverage artifacts
@@ -46,5 +52,5 @@ jobs:
           name: molecule-${{ matrix.coverage_name }}-coverage
           path: |
             coverage/${{ matrix.coverage_name }}-coverage.json
-            .ansible/molecule/common-task-coverage.jsonl
+            .ansible/molecule/${{ matrix.coverage_glob }}
           if-no-files-found: ignore

@@ -1,7 +1,11 @@
 ---
+- name: "Ensure temporary Elasticsearch user fixture"
+  ansible.builtin.include_tasks: "ensure-temporary-elasticsearch-user.yml"
+
 - name: "Run Elasticsearch migration file {{ _phase_coverage_migration_file }}"
   ansible.builtin.include_role:
     name: "{{ _phase_coverage_role_path }}"
     tasks_from: "migrations/elasticsearch-6-to-8/{{ _phase_coverage_migration_file }}.yml"
   vars:
     archivematica_upgrade_es6_checksum: "{{ _phase_coverage_es6_checksum }}"
+    ansible_become_method: "{{ 'su' if ansible_os_family == 'RedHat' else 'sudo' }}"

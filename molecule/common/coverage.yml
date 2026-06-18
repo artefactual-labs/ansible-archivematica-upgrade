@@ -9,6 +9,9 @@ scopes:
   - "tasks/common"
   - "tasks/migrations/elasticsearch-6-to-8/load-context.yml"
   - "tasks/migrations/elasticsearch-6-to-8/load-state.yml"
+# Any task that is expected to be skipped on a specific platform must be listed
+# here with a reason. Unlisted only-skipped tasks fail coverage verification.
+allowed_skips: []
 required_events:
   - path: "tasks/common/load-context.yml"
     name: "Validate Archivematica upgrade identifier"

@@ -35,6 +35,9 @@
         - "elasticsearch"
         - "molecule-es6"
 
+    - name: "Ensure temporary Elasticsearch user fixture"
+      ansible.builtin.include_tasks: "tasks/ensure-temporary-elasticsearch-user.yml"
+
     - name: "Create phase coverage fixture directories"
       ansible.builtin.file:
         path: "{{ item }}"
@@ -242,17 +245,48 @@
               do
                 if [ -x "/etc/init.d/$service" ] || [ -f "/etc/systemd/system/$service.service" ]; then
                   if [ "$service" = "archivematica-dashboard" ] && [ -f "{{ _phase_coverage_fixture_root }}/dashboard-stopped" ]; then
-                    printf ' [ - ]  %s.service\n' "$service"
+                    printf ' [ - ]  %s\n' "$service"
                   else
-                    printf ' [ + ]  %s.service\n' "$service"
+                    printf ' [ + ]  %s\n' "$service"
                   fi
                 fi
               done
               ;;
             *)
+              service="$1"
+              action="${2:-}"
+              if [ "$action" = "status" ]; then
+                if [ "$service" = "archivematica-dashboard" ] && [ -f "{{ _phase_coverage_fixture_root }}/dashboard-stopped" ]; then
+                  exit 3
+                fi
+                if [ -x "/etc/init.d/$service" ] || [ -f "/etc/systemd/system/$service.service" ]; then
+                  exit 0
+                fi
+                exit 3
+              fi
               exit 0
               ;;
           esac
+
+    - name: "Install chkconfig command fixture"
+      ansible.builtin.copy:
+        dest: "{{ _phase_coverage_fixture_bin }}/chkconfig"
+        owner: "root"
+        group: "root"
+        mode: "0755"
+        content: |
+          #!/bin/sh
+          for service in \
+            archivematica-dashboard \
+            archivematica-late \
+            archivematica-mcp-client \
+            archivematica-mcp-server \
+            archivematica-storage-service
+          do
+            if [ -x "/etc/init.d/$service" ] || [ -f "/etc/systemd/system/$service.service" ]; then
+              printf '%s 0:off 1:off 2:on 3:on 4:on 5:on 6:off\n' "$service"
+            fi
+          done
 
     - name: "Install init script service fixtures"
       ansible.builtin.copy:
@@ -355,89 +389,6 @@
         executable: "/bin/bash"
         creates: "{{ _phase_coverage_es6_archive_checksum_file }}"
 
-    - name: "Create dummy OpenJDK package tree"
-      ansible.builtin.file:
-        path: "{{ item }}"
-        state: "directory"
-        owner: "root"
-        group: "root"
-        mode: "0755"
-      loop:
-        - "{{ _phase_coverage_fixture_root }}/package-build/openjdk-11-jdk/DEBIAN"
-        - "{{ _phase_coverage_fixture_root }}/package-build/openjdk-11-jdk/usr/lib/jvm/java-11-openjdk-amd64/bin"
-
-    - name: "Create dummy OpenJDK package metadata"
-      ansible.builtin.copy:
-        dest: "{{ _phase_coverage_fixture_root }}/package-build/openjdk-11-jdk/DEBIAN/control"
-        owner: "root"
-        group: "root"
-        mode: "0644"
-        content: |
-          Package: openjdk-11-jdk
-          Version: 11.0.0
-          Section: misc
-          Priority: optional
-          Architecture: all
-          Maintainer: Molecule <molecule@example.test>
-          Description: Phase coverage Java fixture
-
-    - name: "Create dummy Java executable"
-      ansible.builtin.copy:
-        dest: "{{ _phase_coverage_fixture_root }}/package-build/openjdk-11-jdk/usr/lib/jvm/java-11-openjdk-amd64/bin/java"
-        owner: "root"
-        group: "root"
-        mode: "0755"
-        content: |
-          #!/bin/sh
-          printf 'openjdk version "11.0.0"\n' >&2
-
-    - name: "Create dummy Elasticsearch package tree"
-      ansible.builtin.file:
-        path: "{{ _phase_coverage_fixture_root }}/package-build/elasticsearch/DEBIAN"
-        state: "directory"
-        owner: "root"
-        group: "root"
-        mode: "0755"
-
-    - name: "Create dummy Elasticsearch package metadata"
-      ansible.builtin.copy:
-        dest: "{{ _phase_coverage_fixture_root }}/package-build/elasticsearch/DEBIAN/control"
-        owner: "root"
-        group: "root"
-        mode: "0644"
-        content: |
-          Package: elasticsearch
-          Version: 6.8.23
-          Section: misc
-          Priority: optional
-          Architecture: all
-          Maintainer: Molecule <molecule@example.test>
-          Description: Phase coverage Elasticsearch package fixture
-
-    - name: "Build dummy Debian packages"
-      ansible.builtin.command:
-        argv:
-          - "dpkg-deb"
-          - "--build"
-          - "{{ _phase_coverage_fixture_root }}/package-build/{{ item.name }}"
-          - "{{ _phase_coverage_fixture_root }}/packages/{{ item.name }}_{{ item.version }}_all.deb"
-        creates: "{{ _phase_coverage_fixture_root }}/packages/{{ item.name }}_{{ item.version }}_all.deb"
-      loop:
-        - name: "openjdk-11-jdk"
-          version: "11.0.0"
-        - name: "elasticsearch"
-          version: "6.8.23"
-
-    - name: "Install dummy Debian packages"
-      ansible.builtin.command:
-        argv:
-          - "dpkg"
-          - "-i"
-          - "{{ _phase_coverage_fixture_root }}/packages/{{ item.name }}_{{ item.version }}_all.deb"
-      changed_when: "'install' in _phase_coverage_dpkg_install.stdout or 'unpack' in _phase_coverage_dpkg_install.stdout"
-      register: "_phase_coverage_dpkg_install"
-      loop:
-        - name: "openjdk-11-jdk"
-          version: "11.0.0"
-        - name: "elasticsearch"
-          version: "6.8.23"
+    - name: "Install distro package fixtures"
+      ansible.builtin.include_tasks: >-
+        tasks/prepare-packages-{{ ansible_os_family | lower }}.yml

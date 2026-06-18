@@ -1,0 +1,85 @@
+---
+- name: "Create dummy RPM package directory"
+  ansible.builtin.file:
+    path: "{{ _phase_coverage_fixture_root }}/packages"
+    state: "directory"
+    owner: "root"
+    group: "root"
+    mode: "0755"
+
+- name: "Copy dummy RPM package repository fixtures"
+  ansible.builtin.copy:
+    src: "{{ _phase_coverage_role_path }}/molecule/shared/phase_coverage/files/rpms/"
+    dest: "{{ _phase_coverage_fixture_root }}/packages/"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+    directory_mode: "0755"
+
+- name: "Find enabled external Yum repository files"
+  ansible.builtin.find:
+    paths: "/etc/yum.repos.d"
+    patterns: "*.repo"
+    file_type: "file"
+  register: "_phase_coverage_yum_repo_files"
+
+- name: "Create disabled external Yum repository directory"
+  ansible.builtin.file:
+    path: "{{ _phase_coverage_fixture_root }}/disabled-yum-repos"
+    state: "directory"
+    owner: "root"
+    group: "root"
+    mode: "0755"
+
+- name: "Back up external Yum repository files"
+  ansible.builtin.copy:
+    remote_src: true
+    src: "{{ item.path }}"
+    dest: "{{ _phase_coverage_fixture_root }}/disabled-yum-repos/{{ item.path | basename }}"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+  loop: "{{ _phase_coverage_yum_repo_files.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: "Disable external Yum repository files"
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: "absent"
+  loop: "{{ _phase_coverage_yum_repo_files.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: "Install local RPM fixture repository"
+  ansible.builtin.copy:
+    dest: "/etc/yum.repos.d/phase-coverage-local.repo"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+    content: |
+      [phase-coverage-local]
+      name=Phase coverage local RPM fixtures
+      baseurl=file://{{ _phase_coverage_fixture_root }}/packages
+      enabled=1
+      gpgcheck=0
+      metadata_expire=-1
+
+# Use platform package-manager commands directly so fixture setup exercises the
+# local package database without repository resolution or package downloads.
+- name: "Install dummy RPM packages"
+  ansible.builtin.command: # noqa: command-instead-of-module
+    argv:
+      - "rpm"
+      - "-Uvh"
+      - "--replacepkgs"
+      - "--nosignature"
+      - "{{ _phase_coverage_fixture_root }}/packages/{{ item }}"
+  changed_when: >-
+    'Installing' in _phase_coverage_rpm_install.stdout or
+    'Updating' in _phase_coverage_rpm_install.stdout
+  register: "_phase_coverage_rpm_install"
+  loop:
+    - "java-11-openjdk-11.0.0-1.noarch.rpm"
+    - "java-11-openjdk-devel-11.0.0-1.noarch.rpm"
+    - "elasticsearch-6.8.23-1.noarch.rpm"

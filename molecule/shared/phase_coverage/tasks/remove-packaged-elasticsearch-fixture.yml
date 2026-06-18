@@ -1,0 +1,4 @@
+---
+- name: "Remove packaged Elasticsearch fixture for OS family"
+  ansible.builtin.include_tasks: >-
+    remove-packaged-elasticsearch-fixture-{{ ansible_os_family | lower }}.yml

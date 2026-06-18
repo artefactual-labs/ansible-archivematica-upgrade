@@ -61,9 +61,18 @@ class RequiredStatus:
 
 
 @dataclass(frozen=True)
+class AllowedSkip:
+    path: str
+    name: str
+    platforms: tuple[str, ...]
+    reason: str
+
+
+@dataclass(frozen=True)
 class CoverageConfig:
     scopes: list[str]
     required_statuses: list[RequiredStatus]
+    allowed_skips: list[AllowedSkip]
 
 
 def parse_args() -> argparse.Namespace:
@@ -71,6 +80,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--project-root", required=True, type=Path)
     parser.add_argument("--coverage-file", action="append", required=True, type=Path)
     parser.add_argument("--config", type=Path)
+    parser.add_argument("--platform")
     parser.add_argument("--scope", action="append", default=[])
     parser.add_argument("--require-status", action="append", default=[])
     return parser.parse_args()
@@ -85,6 +95,10 @@ def load_coverage_config(config_file: Path) -> CoverageConfig:
         scopes=string_list(raw_config.get("scopes", []), config_file, "scopes"),
         required_statuses=required_statuses_from_config(
             raw_config.get("required_events", []),
+            config_file,
+        ),
+        allowed_skips=allowed_skips_from_config(
+            raw_config.get("allowed_skips", []),
             config_file,
         ),
     )
@@ -139,6 +153,59 @@ def required_statuses_from_config(
 
         required_statuses.append(RequiredStatus(path, name, status))
     return required_statuses
+
+
+def allowed_skips_from_config(
+    value: Any,
+    config_file: Path,
+) -> list[AllowedSkip]:
+    if not isinstance(value, list):
+        raise ValueError(f"{config_file} field 'allowed_skips' must be a list")
+
+    allowed_skips: list[AllowedSkip] = []
+    for index, item in enumerate(value, start=1):
+        if not isinstance(item, dict):
+            raise ValueError(
+                f"{config_file} field 'allowed_skips' item {index} must be a mapping"
+            )
+
+        path = item.get("path")
+        name = item.get("name")
+        reason = item.get("reason")
+        platforms = item.get("platforms")
+        if not isinstance(path, str):
+            raise ValueError(
+                f"{config_file} field 'allowed_skips' item {index} "
+                "must define a string path"
+            )
+        if not isinstance(name, str):
+            raise ValueError(
+                f"{config_file} field 'allowed_skips' item {index} "
+                "must define a string name"
+            )
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError(
+                f"{config_file} field 'allowed_skips' item {index} "
+                "must define a non-empty string reason"
+            )
+        allowed_platforms = tuple(
+            string_list(platforms, config_file, f"allowed_skips[{index}].platforms")
+        )
+        if not allowed_platforms:
+            raise ValueError(
+                f"{config_file} field 'allowed_skips' item {index} "
+                "must define at least one platform"
+            )
+
+        allowed_skips.append(
+            AllowedSkip(
+                path=path,
+                name=name,
+                platforms=allowed_platforms,
+                reason=reason.strip(),
+            )
+        )
+    return allowed_skips
 
 
 def unique_ordered(items: list[str]) -> list[str]:
@@ -297,6 +364,36 @@ def real_skipped_tasks(
     )
 
 
+def allowed_skip_lookup(
+    allowed_skips: list[AllowedSkip],
+    platform: str | None,
+) -> dict[tuple[str, str], AllowedSkip]:
+    if platform is None:
+        return {}
+
+    return {
+        (allowed_skip.path, allowed_skip.name): allowed_skip
+        for allowed_skip in allowed_skips
+        if platform in allowed_skip.platforms
+    }
+
+
+def unexpected_skipped_tasks(
+    skipped_tasks: list[ExpectedTask],
+    allowed_lookup: dict[tuple[str, str], AllowedSkip],
+) -> list[ExpectedTask]:
+    return [
+        task for task in skipped_tasks if (task.path, task.name) not in allowed_lookup
+    ]
+
+
+def allowed_skipped_tasks(
+    skipped_tasks: list[ExpectedTask],
+    allowed_lookup: dict[tuple[str, str], AllowedSkip],
+) -> list[ExpectedTask]:
+    return [task for task in skipped_tasks if (task.path, task.name) in allowed_lookup]
+
+
 def task_status_counts(
     task_events: dict[ExpectedTask, list[CoverageEvent]],
 ) -> dict[str, int]:
@@ -376,7 +473,7 @@ def main() -> int:
     coverage_config = (
         load_coverage_config(args.config.resolve())
         if args.config is not None
-        else CoverageConfig(scopes=[], required_statuses=[])
+        else CoverageConfig(scopes=[], required_statuses=[], allowed_skips=[])
     )
     scopes = unique_ordered([*coverage_config.scopes, *args.scope])
     required_statuses = [
@@ -409,18 +506,30 @@ def main() -> int:
         key=lambda task: (task.path, task.line),
     )
     skipped_tasks = real_skipped_tasks(task_events)
+    allowed_lookup = allowed_skip_lookup(coverage_config.allowed_skips, args.platform)
+    allowed_skips = allowed_skipped_tasks(skipped_tasks, allowed_lookup)
+    unexpected_skips = unexpected_skipped_tasks(skipped_tasks, allowed_lookup)
     missing_statuses = missing_required_statuses(required_statuses, events)
 
     summary = {
+        "allowed_skipped_task_count": len(allowed_skips),
+        "allowed_skipped_tasks": [
+            {
+                "reason": allowed_lookup[(task.path, task.name)].reason,
+                "task": f"{task.path}:{task.line} {task.name}",
+            }
+            for task in allowed_skips
+        ],
         "covered_task_count": len(reached_tasks),
         "coverage_files": [
             coverage_file.as_posix() for coverage_file in coverage_files
         ],
         "coverage_event_count": len(events),
         "expected_task_count": len(expected_tasks),
-        "real_skipped_task_count": len(skipped_tasks),
+        "platform": args.platform,
+        "real_skipped_task_count": len(unexpected_skips),
         "real_skipped_tasks": [
-            f"{task.path}:{task.line} {task.name}" for task in skipped_tasks
+            f"{task.path}:{task.line} {task.name}" for task in unexpected_skips
         ],
         "required_status_count": len(required_statuses),
         "scopes": scopes,
@@ -428,8 +537,8 @@ def main() -> int:
     }
     print(json.dumps(summary, indent=2, sort_keys=True))
 
-    if missing_tasks or skipped_tasks or missing_statuses:
-        report_failures(missing_tasks, skipped_tasks, missing_statuses)
+    if missing_tasks or unexpected_skips or missing_statuses:
+        report_failures(missing_tasks, unexpected_skips, missing_statuses)
         return 1
     return 0
 
