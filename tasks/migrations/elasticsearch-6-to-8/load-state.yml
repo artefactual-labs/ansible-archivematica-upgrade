@@ -65,6 +65,38 @@
       Prepared Elasticsearch migration state is invalid. Review the files under
       {{ _archivematica_upgrade_state_dir }}.
 
+- name: "Add non-zero transfer counts to prepared source AIP storage stats"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_source_aip_storage_stats: >-
+      {{
+        _archivematica_upgrade_source_aip_storage_stats |
+        combine({
+          'archival_storage': (
+            _archivematica_upgrade_source_aip_storage_stats.archival_storage |
+            combine(
+              (
+                {
+                  'transfer_count':
+                    _archivematica_upgrade_source_index_counts.transfers | int
+                }
+                if _archivematica_upgrade_source_index_counts.transfers | default(0) | int > 0
+                else {}
+              )
+            ) |
+            combine(
+              (
+                {
+                  'transfer_file_count':
+                    _archivematica_upgrade_source_index_counts.transferfiles | int
+                }
+                if _archivematica_upgrade_source_index_counts.transferfiles | default(0) | int > 0
+                else {}
+              )
+            )
+          )
+        }, recursive=true)
+      }}
+
 - name: "Set temporary Elasticsearch 6 paths"
   ansible.builtin.set_fact:
     _archivematica_upgrade_es6_dir: "{{ _archivematica_upgrade_path }}/elasticsearch-{{ _archivematica_upgrade_source_es_version }}"

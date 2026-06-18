@@ -44,13 +44,13 @@ pre-commit: ## Run all pre-commit hooks
 static-checks: pre-commit diff-check ## Run static checks used by CI
 
 molecule-coverage: ## Verify Molecule task coverage from the latest common scenario run
-	$(MOLECULE_COVERAGE_CMD) \
+	@$(MOLECULE_COVERAGE_CMD) \
 		--project-root . \
 		--coverage-file $(MOLECULE_COVERAGE_FILE) \
 		--config $(MOLECULE_COVERAGE_CONFIG)
 
 molecule-phase-coverage: ## Verify aggregate Molecule coverage for phase and migration scenarios
-	$(MOLECULE_COVERAGE_CMD) \
+	@$(MOLECULE_COVERAGE_CMD) \
 		--project-root . \
 		$(MOLECULE_PHASE_COVERAGE_ARGS) \
 		--config $(MOLECULE_PHASE_COVERAGE_CONFIG)

@@ -257,6 +257,12 @@
                   if parsed.path == "/aipfiles/_count":
                       self.send_json({"count": 6})
                       return
+                  if parsed.path == "/transfers/_count":
+                      self.send_json({"count": 2})
+                      return
+                  if parsed.path == "/transferfiles/_count":
+                      self.send_json({"count": 4})
+                      return
                   self.send_json({})
 
               def do_POST(self):
