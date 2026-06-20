@@ -1,0 +1,6 @@
+---
+- name: Run one Archivematica upgrade phase
+  hosts: "{{ target }}"
+  become: true
+  roles:
+    - role: "artefactual.archivematica_upgrade"
