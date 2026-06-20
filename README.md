@@ -250,6 +250,9 @@ For end-to-end orchestration, invoke the phases in the documented order and run
 the normal Archivematica installation automation between the two cutover
 phases.
 
+For an operator-facing sample procedure, see
+[docs/runbooks/1.17-to-1.18.md](docs/runbooks/1.17-to-1.18.md).
+
 ## Adding an upgrade path
 
 Each supported `archivematica_upgrade_path` value is an explicit adjacent
