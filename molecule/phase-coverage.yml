@@ -26,7 +26,7 @@ required_events:
     name: "Require explicit cleanup confirmation"
     status: "failed/rescued"
   - path: "tasks/migrations/elasticsearch-6-to-8/perform-reindex.yml"
-    name: "Require mapped Elasticsearch 8 destination indices"
+    name: "Require mapped Elasticsearch 8 after-upgrade indices"
     status: "failed/rescued"
   - path: "tasks/migrations/elasticsearch-6-to-8/poll-reindex.yml"
     name: "Fail when persisted Elasticsearch remote-reindex task ID is obsolete for aips"

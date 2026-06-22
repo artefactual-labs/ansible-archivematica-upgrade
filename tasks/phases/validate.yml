@@ -191,62 +191,62 @@
     fail_msg: "The Storage Service API did not return a registered pipeline."
   no_log: true
 
-- name: "Capture destination AIP storage stats"
+- name: "Capture after-upgrade AIP storage stats"
   ansible.builtin.include_tasks: "common/capture-aip-storage-stats.yml"
   vars:
-    _archivematica_upgrade_aip_storage_es_url: "{{ _archivematica_upgrade_destination_es_url }}"
-    _archivematica_upgrade_aip_storage_output_file: "{{ _archivematica_upgrade_destination_aip_storage_stats_file }}"
+    _archivematica_upgrade_aip_storage_es_url: "{{ _archivematica_upgrade_after_upgrade_es_url }}"
+    _archivematica_upgrade_aip_storage_output_file: "{{ _archivematica_upgrade_after_upgrade_aip_storage_stats_file }}"
 
-- name: "Capture destination application state"
+- name: "Capture after-upgrade application state"
   ansible.builtin.include_tasks: "common/capture-application-state.yml"
   vars:
-    _archivematica_upgrade_application_state_output_file: "{{ _archivematica_upgrade_destination_application_state_file }}"
+    _archivematica_upgrade_application_state_output_file: "{{ _archivematica_upgrade_after_upgrade_application_state_file }}"
 
 - name: "Verify Archival Storage AIP stats"
   ansible.builtin.assert:
     that:
       - >-
         _archivematica_upgrade_captured_aip_storage_stats.archival_storage ==
-        _archivematica_upgrade_source_aip_storage_stats.archival_storage
+        _archivematica_upgrade_before_upgrade_aip_storage_stats.archival_storage
     fail_msg: >-
       Archival Storage AIP stats
       {{ _archivematica_upgrade_captured_aip_storage_stats.archival_storage }}
-      do not match prepared source stats
-      {{ _archivematica_upgrade_source_aip_storage_stats.archival_storage }}.
+      do not match prepared before-upgrade stats
+      {{ _archivematica_upgrade_before_upgrade_aip_storage_stats.archival_storage }}.
 
 - name: "Verify Storage Service AIP counts"
   ansible.builtin.assert:
     that:
       - >-
         _archivematica_upgrade_captured_aip_storage_stats.storage_service ==
-        _archivematica_upgrade_source_aip_storage_stats.storage_service
+        _archivematica_upgrade_before_upgrade_aip_storage_stats.storage_service
     fail_msg: >-
       Storage Service AIP counts
       {{ _archivematica_upgrade_captured_aip_storage_stats.storage_service }}
-      do not match prepared source counts
-      {{ _archivematica_upgrade_source_aip_storage_stats.storage_service }}.
+      do not match prepared before-upgrade counts
+      {{ _archivematica_upgrade_before_upgrade_aip_storage_stats.storage_service }}.
 
 - name: "Verify Dashboard application state"
   ansible.builtin.assert:
     that:
       - >-
         _archivematica_upgrade_captured_application_state.dashboard ==
-        _archivematica_upgrade_source_application_state.dashboard
+        _archivematica_upgrade_before_upgrade_application_state.dashboard
     fail_msg: >-
-      Dashboard application state does not match the prepared source state.
-      Review {{ _archivematica_upgrade_source_application_state_file }} and
-      {{ _archivematica_upgrade_destination_application_state_file }}.
+      Dashboard application state does not match the prepared before-upgrade state.
+      Review {{ _archivematica_upgrade_before_upgrade_application_state_file }} and
+      {{ _archivematica_upgrade_after_upgrade_application_state_file }}.
 
 - name: "Verify Storage Service application state"
   ansible.builtin.assert:
     that:
       - >-
         _archivematica_upgrade_captured_application_state.storage_service ==
-        _archivematica_upgrade_source_application_state.storage_service
+        _archivematica_upgrade_before_upgrade_application_state.storage_service
     fail_msg: >-
-      Storage Service application state does not match the prepared source
-      state. Review {{ _archivematica_upgrade_source_application_state_file }}
-      and {{ _archivematica_upgrade_destination_application_state_file }}.
+      Storage Service application state does not match the prepared before-upgrade
+      state. Review {{ _archivematica_upgrade_before_upgrade_application_state_file }}
+      and {{ _archivematica_upgrade_after_upgrade_application_state_file }}.
 
 - name: "Record completed validation"
   ansible.builtin.copy:

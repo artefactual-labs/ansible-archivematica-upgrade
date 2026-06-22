@@ -99,8 +99,8 @@
 - name: "Set Archivematica upgrade paths and constants"
   ansible.builtin.set_fact:
     _archivematica_upgrade_root: "{{ archivematica_upgrade_root }}"
-    _archivematica_upgrade_source_es_url: "{{ archivematica_upgrade_source_es_url }}"
-    _archivematica_upgrade_destination_es_url: "{{ archivematica_upgrade_destination_es_url }}"
+    _archivematica_upgrade_before_upgrade_es_url: "{{ archivematica_upgrade_before_upgrade_es_url }}"
+    _archivematica_upgrade_after_upgrade_es_url: "{{ archivematica_upgrade_after_upgrade_es_url }}"
     _archivematica_upgrade_es_config_dir: "/etc/elasticsearch"
     _archivematica_upgrade_es_data_dir: "{{ archivematica_upgrade_es_data_dir }}"
     _archivematica_upgrade_es_log_dir: "/var/log/elasticsearch"
@@ -168,11 +168,11 @@
 - name: "Validate Elasticsearch endpoint URLs"
   ansible.builtin.assert:
     that:
-      - archivematica_upgrade_source_es_url is match('^https?://')
-      - archivematica_upgrade_destination_es_url is match('^https?://')
+      - archivematica_upgrade_before_upgrade_es_url is match('^https?://')
+      - archivematica_upgrade_after_upgrade_es_url is match('^https?://')
     fail_msg: >-
-      Set archivematica_upgrade_source_es_url and
-      archivematica_upgrade_destination_es_url to HTTP or HTTPS Elasticsearch
+      Set archivematica_upgrade_before_upgrade_es_url and
+      archivematica_upgrade_after_upgrade_es_url to HTTP or HTTPS Elasticsearch
       endpoint URLs.
 
 - name: "Validate Archivematica database names"
@@ -394,10 +394,10 @@
     _archivematica_upgrade_backup_dir: "{{ _archivematica_upgrade_path }}/backups"
     _archivematica_upgrade_checkpoint_dir: "{{ _archivematica_upgrade_path }}/checkpoints"
     _archivematica_upgrade_state_dir: "{{ _archivematica_upgrade_path }}/state"
-    _archivematica_upgrade_source_aip_storage_stats_file: "{{ _archivematica_upgrade_path }}/state/source-aip-storage-stats.json"
-    _archivematica_upgrade_destination_aip_storage_stats_file: "{{ _archivematica_upgrade_path }}/state/destination-aip-storage-stats.json"
-    _archivematica_upgrade_source_application_state_file: "{{ _archivematica_upgrade_path }}/state/source-application-state.json"
-    _archivematica_upgrade_destination_application_state_file: "{{ _archivematica_upgrade_path }}/state/destination-application-state.json"
+    _archivematica_upgrade_before_upgrade_aip_storage_stats_file: "{{ _archivematica_upgrade_path }}/state/before-upgrade-aip-storage-stats.json"
+    _archivematica_upgrade_after_upgrade_aip_storage_stats_file: "{{ _archivematica_upgrade_path }}/state/after-upgrade-aip-storage-stats.json"
+    _archivematica_upgrade_before_upgrade_application_state_file: "{{ _archivematica_upgrade_path }}/state/before-upgrade-application-state.json"
+    _archivematica_upgrade_after_upgrade_application_state_file: "{{ _archivematica_upgrade_path }}/state/after-upgrade-application-state.json"
     _archivematica_upgrade_processing_config_archive: "{{ _archivematica_upgrade_path }}/backups/processing-configs-before-upgrade.tgz"
     _archivematica_upgrade_es_data_archive_artifact: "elasticsearch-data-before-upgrade.tgz"
     _archivematica_upgrade_es_config_archive_artifact: "elasticsearch-config-before-upgrade.tgz"

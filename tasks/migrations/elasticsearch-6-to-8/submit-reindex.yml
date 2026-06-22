@@ -1,7 +1,7 @@
 ---
 - name: "Submit Elasticsearch remote reindex for {{ _archivematica_upgrade_reindex_index }}"
   ansible.builtin.uri:
-    url: "{{ _archivematica_upgrade_destination_es_url }}/_reindex?wait_for_completion=false"
+    url: "{{ _archivematica_upgrade_after_upgrade_es_url }}/_reindex?wait_for_completion=false"
     method: "POST"
     body_format: "json"
     body:

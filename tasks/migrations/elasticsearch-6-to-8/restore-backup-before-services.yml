@@ -19,14 +19,14 @@
       - _archivematica_upgrade_restore_packaged_es_versions | length > 0
       - >-
         _archivematica_upgrade_restore_packaged_es_versions |
-        select('version', _archivematica_upgrade_es_source_min_version, '>=') |
-        select('version', _archivematica_upgrade_es_source_max_version, '<') |
+        select('version', _archivematica_upgrade_es_before_upgrade_min_version, '>=') |
+        select('version', _archivematica_upgrade_es_before_upgrade_max_version, '<') |
         list |
         length > 0
     fail_msg: >-
       Restore packaged Elasticsearch 6 before running restore-backup. The
       elasticsearch package must be installed with a version
-      {{ _archivematica_upgrade_es_source_min_version }} or later and earlier
-      than {{ _archivematica_upgrade_es_source_max_version }}. Run the external
+      {{ _archivematica_upgrade_es_before_upgrade_min_version }} or later and earlier
+      than {{ _archivematica_upgrade_es_before_upgrade_max_version }}. Run the external
       deployment rollback for the Elasticsearch service, then rerun
       restore-backup.

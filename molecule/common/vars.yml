@@ -9,8 +9,8 @@ archivematica_upgrade_id: "molecule-common"
 archivematica_upgrade_root: "{{ _molecule_common_fixture_root }}/upgrade-root"
 archivematica_upgrade_es6_user: "molecule-es6"
 archivematica_upgrade_es_data_dir: "{{ _molecule_common_fixture_root }}/elasticsearch"
-archivematica_upgrade_source_es_url: "{{ _molecule_common_fixture_http_url }}"
-archivematica_upgrade_destination_es_url: "{{ _molecule_common_fixture_http_url }}"
+archivematica_upgrade_before_upgrade_es_url: "{{ _molecule_common_fixture_http_url }}"
+archivematica_upgrade_after_upgrade_es_url: "{{ _molecule_common_fixture_http_url }}"
 archivematica_upgrade_processing_config_dir: "{{ _molecule_common_fixture_root }}/processingMCPConfigs"
 archivematica_upgrade_mysql_client_args: []
 archivematica_upgrade_application_services:

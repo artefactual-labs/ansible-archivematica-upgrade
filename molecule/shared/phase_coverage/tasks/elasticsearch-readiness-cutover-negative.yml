@@ -24,34 +24,34 @@
           - ansible_failed_result is defined
           - "'Elasticsearch 6 to 8 migration' in (ansible_failed_result.msg | default(''))"
 
-- name: "Enable source-not-es6 marker"
+- name: "Enable before-upgrade-not-es6 marker"
   ansible.builtin.copy:
     content: ""
-    dest: "{{ _phase_coverage_fixture_root }}/source-not-es6"
+    dest: "{{ _phase_coverage_fixture_root }}/before-upgrade-not-es6"
     owner: "root"
     group: "root"
     mode: "0644"
 
-- name: "Verify readiness rejects non-ES6 source"
+- name: "Verify readiness rejects non-ES6 before-upgrade Elasticsearch"
   block:
-    - name: "Run readiness hook with non-ES6 source"
+    - name: "Run readiness hook with non-ES6 before-upgrade Elasticsearch"
       ansible.builtin.include_tasks: "run-migration-file.yml"
       vars:
         _phase_coverage_migration_file: "check-readiness"
 
-    - name: "Fail when readiness accepts non-ES6 source"
+    - name: "Fail when readiness accepts non-ES6 before-upgrade Elasticsearch"
       ansible.builtin.fail:
-        msg: "readiness accepted non-ES6 source"
+        msg: "readiness accepted non-ES6 before-upgrade Elasticsearch"
   rescue:
-    - name: "Require non-ES6 source failure"
+    - name: "Require non-ES6 before-upgrade Elasticsearch failure"
       ansible.builtin.assert:
         that:
           - ansible_failed_result is defined
           - "'version 6.x' in (ansible_failed_result.msg | default(''))"
 
-- name: "Disable source-not-es6 marker"
+- name: "Disable before-upgrade-not-es6 marker"
   ansible.builtin.file:
-    path: "{{ _phase_coverage_fixture_root }}/source-not-es6"
+    path: "{{ _phase_coverage_fixture_root }}/before-upgrade-not-es6"
     state: "absent"
 
 - name: "Enable snapshot repository marker"

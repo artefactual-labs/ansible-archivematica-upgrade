@@ -17,7 +17,7 @@
 
 - name: "Wait for Elasticsearch 8 after allowlist changes"
   ansible.builtin.uri:
-    url: "{{ _archivematica_upgrade_destination_es_url }}/_cluster/health?wait_for_status=yellow&timeout=60s"
+    url: "{{ _archivematica_upgrade_after_upgrade_es_url }}/_cluster/health?wait_for_status=yellow&timeout=60s"
     return_content: true
   register: "_archivematica_upgrade_es8_health_with_allowlist"
   until:
@@ -29,62 +29,62 @@
 - name: "Ensure temporary Elasticsearch 6 is available"
   ansible.builtin.include_tasks: "migrations/elasticsearch-6-to-8/ensure-es6.yml"
 
-- name: "Read mapped Elasticsearch 8 destination indices"
+- name: "Read mapped Elasticsearch 8 after-upgrade indices"
   ansible.builtin.uri:
-    url: "{{ _archivematica_upgrade_destination_es_url }}/{{ item }}"
+    url: "{{ _archivematica_upgrade_after_upgrade_es_url }}/{{ item }}"
     method: "HEAD"
     status_code:
       - 200
       - 404
   loop: "{{ _archivematica_upgrade_indices }}"
-  register: "_archivematica_upgrade_es8_destination_indices"
+  register: "_archivematica_upgrade_es8_after_upgrade_indices"
 
-- name: "Initialize missing Elasticsearch 8 destination indices"
+- name: "Initialize missing Elasticsearch 8 after-upgrade indices"
   ansible.builtin.set_fact:
-    _archivematica_upgrade_missing_es8_destination_indices: []
+    _archivematica_upgrade_missing_es8_after_upgrade_indices: []
 
-- name: "Collect missing Elasticsearch 8 destination indices"
+- name: "Collect missing Elasticsearch 8 after-upgrade indices"
   ansible.builtin.set_fact:
-    _archivematica_upgrade_missing_es8_destination_indices: >-
-      {{ _archivematica_upgrade_missing_es8_destination_indices + [item.item] }}
-  loop: "{{ _archivematica_upgrade_es8_destination_indices.results }}"
+    _archivematica_upgrade_missing_es8_after_upgrade_indices: >-
+      {{ _archivematica_upgrade_missing_es8_after_upgrade_indices + [item.item] }}
+  loop: "{{ _archivematica_upgrade_es8_after_upgrade_indices.results }}"
   when: item.status | int != 200
 
-- name: "Require mapped Elasticsearch 8 destination indices"
+- name: "Require mapped Elasticsearch 8 after-upgrade indices"
   ansible.builtin.assert:
     that:
-      - _archivematica_upgrade_missing_es8_destination_indices | length == 0
+      - _archivematica_upgrade_missing_es8_after_upgrade_indices | length == 0
     fail_msg: >-
-      Status code was 404 for required mapped Elasticsearch 8 destination
-      indices: {{ _archivematica_upgrade_missing_es8_destination_indices | join(', ') }}.
+      Status code was 404 for required mapped Elasticsearch 8 after-upgrade
+      indices: {{ _archivematica_upgrade_missing_es8_after_upgrade_indices | join(', ') }}.
 
-- name: "Read Elasticsearch 8 destination index counts before reindexing"
+- name: "Read Elasticsearch 8 after-upgrade index counts before reindexing"
   ansible.builtin.uri:
-    url: "{{ _archivematica_upgrade_destination_es_url }}/{{ item }}/_count"
+    url: "{{ _archivematica_upgrade_after_upgrade_es_url }}/{{ item }}/_count"
     status_code: 200
     return_content: true
   loop: "{{ _archivematica_upgrade_indices }}"
   register: "_archivematica_upgrade_es8_pre_reindex_count_responses"
 
-- name: "Initialize non-empty Elasticsearch 8 destination indices"
+- name: "Initialize non-empty Elasticsearch 8 after-upgrade indices"
   ansible.builtin.set_fact:
-    _archivematica_upgrade_nonempty_es8_destination_indices: []
+    _archivematica_upgrade_nonempty_es8_after_upgrade_indices: []
 
-- name: "Collect non-empty Elasticsearch 8 destination indices"
+- name: "Collect non-empty Elasticsearch 8 after-upgrade indices"
   ansible.builtin.set_fact:
-    _archivematica_upgrade_nonempty_es8_destination_indices: >-
-      {{ _archivematica_upgrade_nonempty_es8_destination_indices + [item.item] }}
+    _archivematica_upgrade_nonempty_es8_after_upgrade_indices: >-
+      {{ _archivematica_upgrade_nonempty_es8_after_upgrade_indices + [item.item] }}
   loop: "{{ _archivematica_upgrade_es8_pre_reindex_count_responses.results }}"
   when: item.json.count | default(0) | int > 0
 
-- name: "Require empty Elasticsearch 8 destination indices"
+- name: "Require empty Elasticsearch 8 after-upgrade indices"
   ansible.builtin.assert:
     that:
-      - _archivematica_upgrade_nonempty_es8_destination_indices | length == 0
+      - _archivematica_upgrade_nonempty_es8_after_upgrade_indices | length == 0
     fail_msg: >-
-      Elasticsearch 8 destination indices must be empty before remote
+      Elasticsearch 8 after-upgrade indices must be empty before remote
       reindexing. Non-empty indices:
-      {{ _archivematica_upgrade_nonempty_es8_destination_indices | join(', ') }}.
+      {{ _archivematica_upgrade_nonempty_es8_after_upgrade_indices | join(', ') }}.
 
 - name: "Inspect persisted Elasticsearch remote-reindex task IDs"
   ansible.builtin.stat:
@@ -133,7 +133,7 @@
   loop_control:
     loop_var: "_archivematica_upgrade_reindex_index"
   when:
-    - _archivematica_upgrade_source_index_counts[_archivematica_upgrade_reindex_index] | int > 0
+    - _archivematica_upgrade_before_upgrade_index_counts[_archivematica_upgrade_reindex_index] | int > 0
     - _archivematica_upgrade_reindex_index not in _archivematica_upgrade_reindex_task_ids
 
 - name: "Initialize completed Elasticsearch remote-reindex responses"
@@ -145,7 +145,7 @@
   loop: "{{ _archivematica_upgrade_indices }}"
   loop_control:
     loop_var: "_archivematica_upgrade_reindex_index"
-  when: _archivematica_upgrade_source_index_counts[_archivematica_upgrade_reindex_index] | int > 0
+  when: _archivematica_upgrade_before_upgrade_index_counts[_archivematica_upgrade_reindex_index] | int > 0
 
 - name: "Initialize failed remote reindex requests"
   ansible.builtin.set_fact:
@@ -170,29 +170,29 @@
 
 - name: "Refresh Elasticsearch 8 indices after reindexing"
   ansible.builtin.uri:
-    url: "{{ _archivematica_upgrade_destination_es_url }}/_refresh"
+    url: "{{ _archivematica_upgrade_after_upgrade_es_url }}/_refresh"
     method: "POST"
     status_code: 200
 
 - name: "Flush Elasticsearch 8 indices after reindexing"
   ansible.builtin.uri:
-    url: "{{ _archivematica_upgrade_destination_es_url }}/_flush"
+    url: "{{ _archivematica_upgrade_after_upgrade_es_url }}/_flush"
     method: "POST"
     status_code: 200
 
-- name: "Read Elasticsearch 8 destination index counts"
+- name: "Read Elasticsearch 8 after-upgrade index counts"
   ansible.builtin.uri:
-    url: "{{ _archivematica_upgrade_destination_es_url }}/{{ item }}/_count"
+    url: "{{ _archivematica_upgrade_after_upgrade_es_url }}/{{ item }}/_count"
     status_code: 200
     return_content: true
   loop: "{{ _archivematica_upgrade_indices }}"
   register: "_archivematica_upgrade_es8_count_responses"
 
-- name: "Initialize Elasticsearch 8 destination index counts"
+- name: "Initialize Elasticsearch 8 after-upgrade index counts"
   ansible.builtin.set_fact:
     _archivematica_upgrade_es8_index_counts: {}
 
-- name: "Collect Elasticsearch 8 destination index counts"
+- name: "Collect Elasticsearch 8 after-upgrade index counts"
   ansible.builtin.set_fact:
     _archivematica_upgrade_es8_index_counts: >-
       {{
@@ -201,18 +201,18 @@
       }}
   loop: "{{ _archivematica_upgrade_es8_count_responses.results }}"
 
-- name: "Verify Elasticsearch 8 destination index counts"
+- name: "Verify Elasticsearch 8 after-upgrade index counts"
   ansible.builtin.assert:
     that:
-      - _archivematica_upgrade_es8_index_counts == _archivematica_upgrade_source_index_counts
+      - _archivematica_upgrade_es8_index_counts == _archivematica_upgrade_before_upgrade_index_counts
     fail_msg: >-
       Elasticsearch 8 index counts {{ _archivematica_upgrade_es8_index_counts }} do not
-      match the Elasticsearch 6 source counts {{ _archivematica_upgrade_source_index_counts }}.
+      match the before-upgrade Elasticsearch 6 counts {{ _archivematica_upgrade_before_upgrade_index_counts }}.
 
-- name: "Store Elasticsearch 8 destination index counts"
+- name: "Store Elasticsearch 8 after-upgrade index counts"
   ansible.builtin.copy:
     content: "{{ _archivematica_upgrade_es8_index_counts | to_nice_json }}\n"
-    dest: "{{ _archivematica_upgrade_destination_counts_file }}"
+    dest: "{{ _archivematica_upgrade_after_upgrade_index_counts_file }}"
     owner: "root"
     group: "root"
     mode: "0640"

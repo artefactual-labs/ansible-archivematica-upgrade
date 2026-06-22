@@ -16,7 +16,7 @@
     - "{{ _archivematica_upgrade_state_dir }}/migrations/elasticsearch-6-to-8"
     - "{{ _archivematica_upgrade_checkpoint_dir }}/migrations/elasticsearch-6-to-8"
 
-- name: "Seed source AIP storage state"
+- name: "Seed before-upgrade AIP storage state"
   ansible.builtin.copy:
     content: |
       {
@@ -33,12 +33,12 @@
           }
         }
       }
-    dest: "{{ _archivematica_upgrade_source_aip_storage_stats_file }}"
+    dest: "{{ _archivematica_upgrade_before_upgrade_aip_storage_stats_file }}"
     owner: "root"
     group: "root"
     mode: "0640"
 
-- name: "Seed source application state"
+- name: "Seed before-upgrade application state"
   ansible.builtin.copy:
     content: |
       {
@@ -64,20 +64,20 @@
           "system_users": []
         }
       }
-    dest: "{{ _archivematica_upgrade_source_application_state_file }}"
+    dest: "{{ _archivematica_upgrade_before_upgrade_application_state_file }}"
     owner: "root"
     group: "root"
     mode: "0640"
 
-- name: "Seed Elasticsearch source version"
+- name: "Seed before-upgrade Elasticsearch version"
   ansible.builtin.copy:
     content: "{{ _phase_coverage_es6_version }}\n"
-    dest: "{{ _archivematica_upgrade_state_dir }}/migrations/elasticsearch-6-to-8/source-es-version"
+    dest: "{{ _archivematica_upgrade_state_dir }}/migrations/elasticsearch-6-to-8/before-upgrade-es-version"
     owner: "root"
     group: "root"
     mode: "0640"
 
-- name: "Seed Elasticsearch source counts"
+- name: "Seed before-upgrade Elasticsearch counts"
   ansible.builtin.copy:
     content: |
       {
@@ -86,7 +86,7 @@
         "transfers": 0,
         "transferfiles": 0
       }
-    dest: "{{ _archivematica_upgrade_state_dir }}/migrations/elasticsearch-6-to-8/source-index-counts.json"
+    dest: "{{ _archivematica_upgrade_state_dir }}/migrations/elasticsearch-6-to-8/before-upgrade-index-counts.json"
     owner: "root"
     group: "root"
     mode: "0640"

@@ -61,21 +61,21 @@
           - >-
             (_archivematica_upgrade_application_services | sort) ==
             ((archivematica_upgrade_application_services + archivematica_upgrade_common_local_services) | unique | sort)
-          - _archivematica_upgrade_source_aip_storage_stats.archival_storage == {}
-          - _archivematica_upgrade_source_aip_storage_stats.storage_service == {}
-          - _archivematica_upgrade_source_application_state.dashboard == {}
-          - _archivematica_upgrade_source_application_state.storage_service == {}
+          - _archivematica_upgrade_before_upgrade_aip_storage_stats.archival_storage == {}
+          - _archivematica_upgrade_before_upgrade_aip_storage_stats.storage_service == {}
+          - _archivematica_upgrade_before_upgrade_application_state.dashboard == {}
+          - _archivematica_upgrade_before_upgrade_application_state.storage_service == {}
 
     - name: "Require Elasticsearch migration hook state"
       ansible.builtin.assert:
         that:
           - _archivematica_upgrade_has_es6_to_8_migration | bool
           - _archivematica_upgrade_es_migration_state_dir == _archivematica_upgrade_state_dir ~ '/migrations/elasticsearch-6-to-8'
-          - _archivematica_upgrade_source_es_version == '6.8.23'
-          - _archivematica_upgrade_source_index_counts.aips | int == 3
-          - _archivematica_upgrade_source_index_counts.aipfiles | int == 6
-          - _archivematica_upgrade_source_index_counts.transfers | int == 0
-          - _archivematica_upgrade_source_index_counts.transferfiles | int == 0
+          - _archivematica_upgrade_before_upgrade_es_version == '6.8.23'
+          - _archivematica_upgrade_before_upgrade_index_counts.aips | int == 3
+          - _archivematica_upgrade_before_upgrade_index_counts.aipfiles | int == 6
+          - _archivematica_upgrade_before_upgrade_index_counts.transfers | int == 0
+          - _archivematica_upgrade_before_upgrade_index_counts.transferfiles | int == 0
           - _archivematica_upgrade_java_11_home == '/usr/lib/jvm/java-11-openjdk-amd64'
 
     - name: "Create optional MySQL defaults fixture"
@@ -124,9 +124,9 @@
       ansible.builtin.stat:
         path: "{{ item.path }}"
       loop:
-        - path: "{{ _archivematica_upgrade_destination_aip_storage_stats_file }}"
+        - path: "{{ _archivematica_upgrade_after_upgrade_aip_storage_stats_file }}"
           mode: "0640"
-        - path: "{{ _archivematica_upgrade_destination_application_state_file }}"
+        - path: "{{ _archivematica_upgrade_after_upgrade_application_state_file }}"
           mode: "0640"
         - path: "{{ archivematica_upgrade_archivematica_apt_keyring_path }}"
           mode: "0644"
@@ -164,12 +164,12 @@
 
     - name: "Read generated AIP storage state"
       ansible.builtin.slurp:
-        src: "{{ _archivematica_upgrade_destination_aip_storage_stats_file }}"
+        src: "{{ _archivematica_upgrade_after_upgrade_aip_storage_stats_file }}"
       register: "_molecule_common_aip_storage_state_content"
 
     - name: "Read generated application state"
       ansible.builtin.slurp:
-        src: "{{ _archivematica_upgrade_destination_application_state_file }}"
+        src: "{{ _archivematica_upgrade_after_upgrade_application_state_file }}"
       register: "_molecule_common_application_state_content"
 
     - name: "Read generated apt keyring"

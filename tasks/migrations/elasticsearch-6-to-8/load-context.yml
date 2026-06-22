@@ -1,10 +1,10 @@
 ---
 - name: "Set Elasticsearch 6 to 8 migration version constraints"
   ansible.builtin.set_fact:
-    _archivematica_upgrade_es_source_min_version: "6.0"
-    _archivematica_upgrade_es_source_max_version: "7.0"
-    _archivematica_upgrade_es_destination_min_version: "8.0"
-    _archivematica_upgrade_es_destination_max_version: "9.0"
+    _archivematica_upgrade_es_before_upgrade_min_version: "6.0"
+    _archivematica_upgrade_es_before_upgrade_max_version: "7.0"
+    _archivematica_upgrade_es_after_upgrade_min_version: "8.0"
+    _archivematica_upgrade_es_after_upgrade_max_version: "9.0"
 
 - name: "Set Elasticsearch 6 to 8 migration state paths"
   ansible.builtin.set_fact:
@@ -17,16 +17,16 @@
 
 - name: "Set Elasticsearch 6 to 8 migration artifact paths"
   ansible.builtin.set_fact:
-    _archivematica_upgrade_source_counts_file: >-
-      {{ _archivematica_upgrade_es_migration_state_dir }}/source-index-counts.json
-    _archivematica_upgrade_source_version_file: >-
-      {{ _archivematica_upgrade_es_migration_state_dir }}/source-es-version
+    _archivematica_upgrade_before_upgrade_index_counts_file: >-
+      {{ _archivematica_upgrade_es_migration_state_dir }}/before-upgrade-index-counts.json
+    _archivematica_upgrade_before_upgrade_es_version_file: >-
+      {{ _archivematica_upgrade_es_migration_state_dir }}/before-upgrade-es-version
     _archivematica_upgrade_java_home_file: >-
       {{ _archivematica_upgrade_es_migration_state_dir }}/java-11-home
     _archivematica_upgrade_reindex_task_ids_file: >-
       {{ _archivematica_upgrade_es_migration_state_dir }}/reindex-task-ids.json
-    _archivematica_upgrade_destination_counts_file: >-
-      {{ _archivematica_upgrade_es_migration_state_dir }}/destination-index-counts.json
+    _archivematica_upgrade_after_upgrade_index_counts_file: >-
+      {{ _archivematica_upgrade_es_migration_state_dir }}/after-upgrade-index-counts.json
     _archivematica_upgrade_reindexed_checkpoint: >-
       {{ _archivematica_upgrade_es_migration_checkpoint_dir }}/reindexed
     _archivematica_upgrade_es6_system_removed_checkpoint: >-

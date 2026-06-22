@@ -1,7 +1,7 @@
 ---
 - name: "Wait for Elasticsearch 8"
   ansible.builtin.uri:
-    url: "{{ _archivematica_upgrade_destination_es_url }}/_cluster/health?wait_for_status=yellow&timeout=60s"
+    url: "{{ _archivematica_upgrade_after_upgrade_es_url }}/_cluster/health?wait_for_status=yellow&timeout=60s"
     return_content: true
   register: "_archivematica_upgrade_es8_health"
   until:
@@ -10,9 +10,9 @@
   retries: 12
   delay: 5
 
-- name: "Read Elasticsearch 8 destination index counts"
+- name: "Read Elasticsearch 8 after-upgrade index counts"
   ansible.builtin.uri:
-    url: "{{ _archivematica_upgrade_destination_es_url }}/{{ item }}/_count"
+    url: "{{ _archivematica_upgrade_after_upgrade_es_url }}/{{ item }}/_count"
     status_code:
       - 200
       - 404
@@ -20,11 +20,11 @@
   loop: "{{ _archivematica_upgrade_indices }}"
   register: "_archivematica_upgrade_es8_count_responses"
 
-- name: "Initialize Elasticsearch 8 destination index counts"
+- name: "Initialize Elasticsearch 8 after-upgrade index counts"
   ansible.builtin.set_fact:
     _archivematica_upgrade_es8_index_counts: {}
 
-- name: "Collect Elasticsearch 8 destination index counts"
+- name: "Collect Elasticsearch 8 after-upgrade index counts"
   ansible.builtin.set_fact:
     _archivematica_upgrade_es8_index_counts: >-
       {{
@@ -33,10 +33,10 @@
       }}
   loop: "{{ _archivematica_upgrade_es8_count_responses.results }}"
 
-- name: "Verify Elasticsearch 8 destination index counts"
+- name: "Verify Elasticsearch 8 after-upgrade index counts"
   ansible.builtin.assert:
     that:
-      - _archivematica_upgrade_es8_index_counts == _archivematica_upgrade_source_index_counts
+      - _archivematica_upgrade_es8_index_counts == _archivematica_upgrade_before_upgrade_index_counts
     fail_msg: >-
       Elasticsearch 8 index counts {{ _archivematica_upgrade_es8_index_counts }} do not
-      match the Elasticsearch 6 source counts {{ _archivematica_upgrade_source_index_counts }}.
+      match the before-upgrade Elasticsearch 6 counts {{ _archivematica_upgrade_before_upgrade_index_counts }}.

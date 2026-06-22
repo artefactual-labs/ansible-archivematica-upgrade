@@ -107,9 +107,9 @@ Common optional variables:
 | `archivematica_upgrade_phase` | `check-readiness` | Phase to execute when invoking the role directly. |
 | `archivematica_upgrade_root` | `/var/lib/archivematica-upgrades` | Persistent state and backup root. |
 | `archivematica_upgrade_es6_port` | `9500` | Port for the temporary Elasticsearch 6 node used by the `elasticsearch-6-to-8` migration. |
-| `archivematica_upgrade_es8_url` | `http://127.0.0.1:9200` | Compatibility endpoint used as the default for source and destination Elasticsearch URLs. |
-| `archivematica_upgrade_source_es_url` | `archivematica_upgrade_es8_url` | Source Elasticsearch endpoint used before the installer handoff. |
-| `archivematica_upgrade_destination_es_url` | `archivematica_upgrade_es8_url` | Destination Elasticsearch endpoint installed by the normal Archivematica installation automation. |
+| `archivematica_upgrade_es8_url` | `http://127.0.0.1:9200` | Compatibility endpoint used as the default for before-upgrade and after-upgrade Elasticsearch URLs. |
+| `archivematica_upgrade_before_upgrade_es_url` | `archivematica_upgrade_es8_url` | Elasticsearch endpoint used before the installer handoff. |
+| `archivematica_upgrade_after_upgrade_es_url` | `archivematica_upgrade_es8_url` | Elasticsearch endpoint installed by the normal Archivematica installation automation. |
 | `archivematica_upgrade_es_data_dir` | `elasticsearch_data_dir` or `/var/lib/elasticsearch` | Packaged Elasticsearch data directory to measure, back up, and preserve during cutover when a migration needs that. |
 | `archivematica_upgrade_es6_user` | SSH user | Non-root account used to run the temporary Elasticsearch 6 process. |
 | `archivematica_upgrade_es6_archive_url` | Elastic download URL | Optional Elasticsearch 6 archive URL override. Set `archivematica_upgrade_es6_checksum` with this override. |
@@ -121,7 +121,7 @@ Common optional variables:
 | `archivematica_upgrade_reindex_timeout` | `3600` | Maximum number of seconds to poll each asynchronous remote-reindex task. |
 | `archivematica_upgrade_reindex_batch_size` | `1000` | Remote reindex batch size. Tune this with `archivematica_upgrade_reindex_timeout` for large installations. |
 | `archivematica_upgrade_disk_multiplier` | `3` | Conservative working-storage safety multiplier applied by migrations that need extra Elasticsearch working copies. |
-| `archivematica_upgrade_disk_extra_bytes` | `1073741824` | Extra free-space margin required during readiness checks for upgrade storage and migration destination filesystems. |
+| `archivematica_upgrade_disk_extra_bytes` | `1073741824` | Extra free-space margin required during readiness checks for upgrade storage and after-upgrade migration filesystems. |
 | `archivematica_upgrade_mysql_defaults_extra_file` | empty | Optional protected MySQL client defaults file used by readiness queries and backups. Use this for non-default hosts, sockets, or credentials. |
 | `archivematica_upgrade_mysql_client_args` | `[]` | Additional non-secret MySQL client arguments used by readiness queries and backups. Keep credentials in the protected defaults file. |
 | `archivematica_upgrade_archivematica_user` | `archivematica` | Local Archivematica account that owns restored Dashboard processing configuration files. |
@@ -166,7 +166,7 @@ For `elasticsearch-6-to-8`, before the Elasticsearch 6 package is removed, the
 role also preserves the active Elasticsearch configuration, data, and log
 directories with a `-before-upgrade` suffix, such as
 `/var/lib/elasticsearch-before-upgrade`. These preserved directories support
-rollback and provide the source data for remote reindexing. They are retained
+rollback and provide the before-upgrade data for remote reindexing. They are retained
 until rollback data removal is explicitly confirmed.
 
 The temporary Elasticsearch archive is checked against Elastic's published
@@ -192,7 +192,7 @@ heuristic of three times the existing Elasticsearch data plus 1 GiB. This is an
 operator safety margin for the temporary copies created by that workflow, not an
 Archivematica upstream requirement. Review the filesystem layout before
 lowering it. That migration separately requires enough free space on the
-Elasticsearch data filesystem for the Elasticsearch 8 destination indices plus
+Elasticsearch data filesystem for the Elasticsearch 8 after-upgrade indices plus
 the configured extra margin.
 
 The `cleanup` phase removes temporary Elasticsearch 6 runtime files by default
@@ -266,9 +266,9 @@ Storage Service version pattern for the external installer handoff. For
 Future paths should register only the migrations they actually need. Migration
 implementations live under `tasks/migrations/<migration>/` and expose hook
 files for the phases they need, such as `migrate.yml`. Requirements that belong
-to one migration, such as the Elasticsearch 6 source and Elasticsearch 8
-destination version ranges, should live in that migration's hook files rather
-than in path target metadata.
+to one migration, such as the before-upgrade Elasticsearch 6 and after-upgrade
+Elasticsearch 8 version ranges, should live in that migration's hook files
+rather than in path target metadata.
 
 ### Migration hooks
 
@@ -304,16 +304,16 @@ implements these hook files:
 | Hook | Purpose |
 | --- | --- |
 | `load-context.yml` | Sets migration-specific Elasticsearch version constraints plus state, backup, checkpoint, and artifact paths. |
-| `load-state.yml` | Loads the prepared Elasticsearch source version, source index counts, Java 11 home, and temporary Elasticsearch 6 paths. |
+| `load-state.yml` | Loads the prepared before-upgrade Elasticsearch version, before-upgrade index counts, Java 11 home, and temporary Elasticsearch 6 paths. |
 | `prepare-before-readiness.yml` | Keeps packaged Elasticsearch 6 running before the repeated readiness checks run during `prepare`. |
-| `check-readiness.yml` | Requires the installer handoff to target Elasticsearch 8, a packaged Elasticsearch 6 source, removed snapshot repositories, an unused temporary Elasticsearch 6 port, and enough working storage. |
-| `prepare.yml` | Records the packaged Elasticsearch 6 version and source index counts used later for reindex validation. |
+| `check-readiness.yml` | Requires the installer handoff to target Elasticsearch 8, a packaged before-upgrade Elasticsearch 6 service, removed snapshot repositories, an unused temporary Elasticsearch 6 port, and enough working storage. |
+| `prepare.yml` | Records the packaged Elasticsearch 6 version and before-upgrade index counts used later for reindex validation. |
 | `prepare-backup.yml` | Registers the generic Elasticsearch filesystem backup artifacts in the backup manifest. |
 | `cutover-before-install.yml` | Stops packaged Elasticsearch 6, preserves its config/data/log directories, uninstalls the `elasticsearch` package, and records the removal checkpoint. |
 | `cutover-after-install.yml` | Requires the Elasticsearch 6 removal checkpoint and verifies that packaged Elasticsearch 8 is installed and responding. |
 | `migrate.yml` | Prepares the temporary Elasticsearch 6 runtime, reindexes into Elasticsearch 8, restores Elasticsearch 8 configuration, and stops the temporary node. |
 | `validate-before-services.yml` | Requires completed reindexing and confirms the temporary Elasticsearch 6 port is stopped before services start. |
-| `validate.yml` | Verifies Elasticsearch 8 destination index counts against the captured Elasticsearch 6 source counts. |
+| `validate.yml` | Verifies Elasticsearch 8 after-upgrade index counts against the captured before-upgrade Elasticsearch 6 counts. |
 | `restore-backup-check.yml` | Requires Elasticsearch 6 metadata in the backup manifest before rollback restore proceeds. |
 | `restore-backup-before-services.yml` | Requires the packaged Elasticsearch package to be installed at version 6.x before restore. |
 | `restore-backup.yml` | Stops packaged and temporary Elasticsearch, removes current packaged Elasticsearch directories, and moves preserved Elasticsearch 6 directories back. |
@@ -334,8 +334,8 @@ To add an upgrade path:
 3. Add migration-specific hooks under `tasks/migrations/<migration>/` for the
    phases they affect. Missing hook files are valid no-ops. For example, a
    migration can provide `prepare.yml`, `migrate.yml`, and `cleanup.yml`
-   without implementing every public phase. Keep migration-specific source or
-   destination package/version constraints in those hooks.
+   without implementing every public phase. Keep migration-specific before-upgrade
+   or after-upgrade package/version constraints in those hooks.
 4. Keep migration-specific state under
    `state/migrations/<migration>/` and migration-specific checkpoints under
    `checkpoints/migrations/<migration>/` so future paths do not inherit

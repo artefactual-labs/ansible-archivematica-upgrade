@@ -12,7 +12,7 @@ from typing import Any
 from urllib.parse import parse_qs
 from urllib.parse import urlparse
 
-SOURCE_COUNTS = {
+BEFORE_UPGRADE_COUNTS = {
     "aips": 3,
     "aipfiles": 6,
     "transfers": 0,
@@ -30,7 +30,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
     def do_HEAD(self) -> None:
         route = self.route()
         index = route.index
-        if route.kind == "es8" and index in SOURCE_COUNTS:
+        if route.kind == "es8" and index in BEFORE_UPGRADE_COUNTS:
             if self.has_marker("missing-index") and index == "aips":
                 self.send_empty(HTTPStatus.NOT_FOUND)
                 return
@@ -43,7 +43,9 @@ class FixtureHandler(BaseHTTPRequestHandler):
 
         if route.path in {"", "/"}:
             if route.kind in {"es6", "es6-temp"}:
-                version = "8.15.0" if self.has_marker("source-not-es6") else "6.8.23"
+                version = (
+                    "8.15.0" if self.has_marker("before-upgrade-not-es6") else "6.8.23"
+                )
                 self.send_json({"version": {"number": version}})
                 return
             if route.kind == "es8":
@@ -73,7 +75,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
             self.handle_task_poll(route.path)
             return
 
-        if route.path.endswith("/_count") and route.index in SOURCE_COUNTS:
+        if route.path.endswith("/_count") and route.index in BEFORE_UPGRADE_COUNTS:
             if self.has_marker("missing-transfer-indices") and route.index in {
                 "transfers",
                 "transferfiles",
@@ -116,7 +118,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         route = self.route()
-        if route.path.endswith("/_search") and route.index in SOURCE_COUNTS:
+        if route.path.endswith("/_search") and route.index in BEFORE_UPGRADE_COUNTS:
             payload = self.request_json()
             count = self.index_count(route.kind, route.index)
             hit_total = {"relation": "eq", "value": count}
@@ -133,8 +135,11 @@ class FixtureHandler(BaseHTTPRequestHandler):
             self.handle_reindex_submit()
             return
         if route.path in {"/_refresh", "/_flush"}:
-            if self.has_marker("destination-source-counts"):
-                self.write_json("destination-counts.json", self.source_counts())
+            if self.has_marker("after-upgrade-counts-match-before-upgrade"):
+                self.write_json(
+                    "after-upgrade-counts.json",
+                    self.before_upgrade_counts(),
+                )
             self.send_json({"ok": True})
             return
         self.send_empty(HTTPStatus.NOT_FOUND)
@@ -154,11 +159,11 @@ class FixtureHandler(BaseHTTPRequestHandler):
         task_ids[index] = task_id
         self.write_json("reindex-task-ids.json", task_ids)
 
-        destination_counts = self.read_json("destination-counts.json", {})
-        destination_counts[index] = (
-            self.source_count(index) if index in SOURCE_COUNTS else 0
+        after_upgrade_counts = self.read_json("after-upgrade-counts.json", {})
+        after_upgrade_counts[index] = (
+            self.before_upgrade_count(index) if index in BEFORE_UPGRADE_COUNTS else 0
         )
-        self.write_json("destination-counts.json", destination_counts)
+        self.write_json("after-upgrade-counts.json", after_upgrade_counts)
 
         self.send_json({"task": task_id})
 
@@ -179,26 +184,28 @@ class FixtureHandler(BaseHTTPRequestHandler):
 
     def index_count(self, kind: str, index: str) -> int:
         if kind in {"es6", "es6-temp"}:
-            return self.source_count(index)
+            return self.before_upgrade_count(index)
 
-        destination_counts = self.read_json("destination-counts.json", {})
-        if self.has_marker("destination-source-counts"):
-            return int(destination_counts.get(index, 0))
-        if self.has_marker("destination-nonempty"):
+        after_upgrade_counts = self.read_json("after-upgrade-counts.json", {})
+        if self.has_marker("after-upgrade-counts-match-before-upgrade"):
+            return int(after_upgrade_counts.get(index, 0))
+        if self.has_marker("after-upgrade-nonempty"):
             return 1 if index == "aips" else 0
-        if self.has_marker("destination-mismatch"):
-            count = int(destination_counts.get(index, 0))
+        if self.has_marker("after-upgrade-mismatch"):
+            count = int(after_upgrade_counts.get(index, 0))
             return count + (1 if count > 0 and index == "aips" else 0)
 
-        return int(destination_counts.get(index, 0))
+        return int(after_upgrade_counts.get(index, 0))
 
-    def source_counts(self) -> dict[str, int]:
-        return {index: self.source_count(index) for index in SOURCE_COUNTS}
+    def before_upgrade_counts(self) -> dict[str, int]:
+        return {
+            index: self.before_upgrade_count(index) for index in BEFORE_UPGRADE_COUNTS
+        }
 
-    def source_count(self, index: str) -> int:
+    def before_upgrade_count(self, index: str) -> int:
         if self.has_marker("es8-search-total-cap") and index == "aipfiles":
             return TRACK_TOTAL_HITS_CAP_AIPFILES
-        return SOURCE_COUNTS[index]
+        return BEFORE_UPGRADE_COUNTS[index]
 
     def should_cap_search_total(
         self,
