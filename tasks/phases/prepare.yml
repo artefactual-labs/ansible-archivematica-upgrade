@@ -66,7 +66,7 @@
     - "{{ _archivematica_upgrade_checkpoint_dir }}"
     - "{{ _archivematica_upgrade_state_dir }}"
 
-- name: "Require Storage Service API credentials before capturing source AIP counts"
+- name: "Require Storage Service API credentials before capturing before-upgrade AIP counts"
   ansible.builtin.assert:
     that:
       - _archivematica_upgrade_ss_api_url | length > 0
@@ -74,40 +74,40 @@
       - archivematica_upgrade_ss_api_key | length > 0
     fail_msg: >-
       Set the Storage Service API validation variables before running the
-      prepare phase so source AIP package counts can be recorded.
+      prepare phase so before-upgrade AIP package counts can be recorded.
   when: not _archivematica_upgrade_prepared_checkpoint.stat.exists
 
-- name: "Check whether source AIP storage stats were captured"
+- name: "Check whether before-upgrade AIP storage stats were captured"
   ansible.builtin.stat:
-    path: "{{ _archivematica_upgrade_source_aip_storage_stats_file }}"
-  register: "_archivematica_upgrade_source_aip_storage_stats_state"
+    path: "{{ _archivematica_upgrade_before_upgrade_aip_storage_stats_file }}"
+  register: "_archivematica_upgrade_before_upgrade_aip_storage_stats_state"
 
-- name: "Capture source AIP storage stats before stopping services"
+- name: "Capture before-upgrade AIP storage stats before stopping services"
   ansible.builtin.include_tasks: "common/capture-aip-storage-stats.yml"
   vars:
-    _archivematica_upgrade_aip_storage_es_url: "{{ _archivematica_upgrade_source_es_url }}"
-    _archivematica_upgrade_aip_storage_output_file: "{{ _archivematica_upgrade_source_aip_storage_stats_file }}"
+    _archivematica_upgrade_aip_storage_es_url: "{{ _archivematica_upgrade_before_upgrade_es_url }}"
+    _archivematica_upgrade_aip_storage_output_file: "{{ _archivematica_upgrade_before_upgrade_aip_storage_stats_file }}"
     _archivematica_upgrade_capture_start_ss_api: true
     _archivematica_upgrade_capture_force: false
   when:
     - not _archivematica_upgrade_prepared_checkpoint.stat.exists
-    - not _archivematica_upgrade_source_aip_storage_stats_state.stat.exists
+    - not _archivematica_upgrade_before_upgrade_aip_storage_stats_state.stat.exists
 
-- name: "Check whether source application state was captured"
+- name: "Check whether before-upgrade application state was captured"
   ansible.builtin.stat:
-    path: "{{ _archivematica_upgrade_source_application_state_file }}"
-  register: "_archivematica_upgrade_source_application_state_state"
+    path: "{{ _archivematica_upgrade_before_upgrade_application_state_file }}"
+  register: "_archivematica_upgrade_before_upgrade_application_state_state"
 
-- name: "Capture source application state before stopping services"
+- name: "Capture before-upgrade application state before stopping services"
   ansible.builtin.include_tasks: "common/capture-application-state.yml"
   vars:
-    _archivematica_upgrade_application_state_output_file: "{{ _archivematica_upgrade_source_application_state_file }}"
+    _archivematica_upgrade_application_state_output_file: "{{ _archivematica_upgrade_before_upgrade_application_state_file }}"
     _archivematica_upgrade_capture_force: false
   when:
     - not _archivematica_upgrade_prepared_checkpoint.stat.exists
-    - not _archivematica_upgrade_source_application_state_state.stat.exists
+    - not _archivematica_upgrade_before_upgrade_application_state_state.stat.exists
 
-- name: "Prepare rollback backups and source state"
+- name: "Prepare rollback backups and before-upgrade state"
   when: not _archivematica_upgrade_prepared_checkpoint.stat.exists
   block:
     - name: "Stop Archivematica application services"

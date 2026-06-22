@@ -72,7 +72,7 @@
 - name: "Require the expected temporary Elasticsearch 6 version"
   ansible.builtin.assert:
     that:
-      - _archivematica_upgrade_es6_response.json.version.number == _archivematica_upgrade_source_es_version
+      - _archivematica_upgrade_es6_response.json.version.number == _archivematica_upgrade_before_upgrade_es_version
     fail_msg: "The temporary Elasticsearch 6 node is not serving the prepared migration data."
 
 - name: "Read temporary Elasticsearch 6 index counts"
@@ -101,7 +101,7 @@
 - name: "Verify temporary Elasticsearch 6 index counts"
   ansible.builtin.assert:
     that:
-      - _archivematica_upgrade_es6_index_counts == _archivematica_upgrade_source_index_counts
+      - _archivematica_upgrade_es6_index_counts == _archivematica_upgrade_before_upgrade_index_counts
     fail_msg: >-
       Temporary Elasticsearch index counts {{ _archivematica_upgrade_es6_index_counts }}
-      do not match the packaged source counts {{ _archivematica_upgrade_source_index_counts }}.
+      do not match the packaged before-upgrade counts {{ _archivematica_upgrade_before_upgrade_index_counts }}.

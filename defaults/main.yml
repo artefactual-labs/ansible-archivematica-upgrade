@@ -9,8 +9,8 @@ archivematica_upgrade_restore_confirmed: false
 archivematica_upgrade_root: "/var/lib/archivematica-upgrades"
 archivematica_upgrade_es6_port: 9500
 archivematica_upgrade_es8_url: "http://127.0.0.1:9200"
-archivematica_upgrade_source_es_url: "{{ archivematica_upgrade_es8_url }}"
-archivematica_upgrade_destination_es_url: "{{ archivematica_upgrade_es8_url }}"
+archivematica_upgrade_before_upgrade_es_url: "{{ archivematica_upgrade_es8_url }}"
+archivematica_upgrade_after_upgrade_es_url: "{{ archivematica_upgrade_es8_url }}"
 archivematica_upgrade_es_data_dir: "{{ elasticsearch_data_dir | default('/var/lib/elasticsearch') }}"
 archivematica_upgrade_es6_user: ""
 archivematica_upgrade_es6_archive_url: ""

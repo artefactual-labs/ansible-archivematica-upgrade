@@ -48,7 +48,7 @@
             "archival_storage": {},
             "storage_service": {}
           }
-        dest: "{{ _archivematica_upgrade_source_aip_storage_stats_file }}"
+        dest: "{{ _archivematica_upgrade_before_upgrade_aip_storage_stats_file }}"
         owner: "root"
         group: "root"
         mode: "0644"
@@ -60,20 +60,20 @@
             "dashboard": {},
             "storage_service": {}
           }
-        dest: "{{ _archivematica_upgrade_source_application_state_file }}"
+        dest: "{{ _archivematica_upgrade_before_upgrade_application_state_file }}"
         owner: "root"
         group: "root"
         mode: "0644"
 
-    - name: "Write prepared Elasticsearch source version fixture"
+    - name: "Write prepared before-upgrade Elasticsearch version fixture"
       ansible.builtin.copy:
         content: "6.8.23\n"
-        dest: "{{ _archivematica_upgrade_source_version_file }}"
+        dest: "{{ _archivematica_upgrade_before_upgrade_es_version_file }}"
         owner: "root"
         group: "root"
         mode: "0644"
 
-    - name: "Write prepared Elasticsearch source index count fixture"
+    - name: "Write prepared before-upgrade Elasticsearch index count fixture"
       ansible.builtin.copy:
         content: |
           {
@@ -82,7 +82,7 @@
             "transfers": 0,
             "transferfiles": 0
           }
-        dest: "{{ _archivematica_upgrade_source_counts_file }}"
+        dest: "{{ _archivematica_upgrade_before_upgrade_index_counts_file }}"
         owner: "root"
         group: "root"
         mode: "0644"
@@ -118,7 +118,7 @@
         tasks_from: "common/capture-aip-storage-stats.yml"
       vars:
         _archivematica_upgrade_aip_storage_es_url: "{{ _molecule_common_fixture_http_url }}"
-        _archivematica_upgrade_aip_storage_output_file: "{{ _archivematica_upgrade_destination_aip_storage_stats_file }}"
+        _archivematica_upgrade_aip_storage_output_file: "{{ _archivematica_upgrade_after_upgrade_aip_storage_stats_file }}"
         _archivematica_upgrade_capture_start_ss_api: false
         _archivematica_upgrade_capture_force: true
 
@@ -127,7 +127,7 @@
         name: "{{ _molecule_common_role_path }}"
         tasks_from: "common/capture-application-state.yml"
       vars:
-        _archivematica_upgrade_application_state_output_file: "{{ _archivematica_upgrade_destination_application_state_file }}"
+        _archivematica_upgrade_application_state_output_file: "{{ _archivematica_upgrade_after_upgrade_application_state_file }}"
         _archivematica_upgrade_capture_force: true
 
     - name: "Run common Archivematica apt key refresh tasks"

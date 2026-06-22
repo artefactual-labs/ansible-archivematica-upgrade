@@ -23,13 +23,13 @@
     - name: "Move packaged Elasticsearch 6 directories aside"
       ansible.builtin.shell: |
         set -o errexit -o nounset -o pipefail
-        if [ -e '{{ item.source }}' ] && [ -e '{{ item.destination }}' ]; then
-          echo "Both {{ item.source }} and {{ item.destination }} exist" >&2
+        if [ -e '{{ item.current }}' ] && [ -e '{{ item.preserved }}' ]; then
+          echo "Both {{ item.current }} and {{ item.preserved }} exist" >&2
           exit 1
-        elif [ -e '{{ item.source }}' ]; then
-          mv '{{ item.source }}' '{{ item.destination }}'
+        elif [ -e '{{ item.current }}' ]; then
+          mv '{{ item.current }}' '{{ item.preserved }}'
           echo "moved"
-        elif [ -e '{{ item.destination }}' ]; then
+        elif [ -e '{{ item.preserved }}' ]; then
           echo "already-moved"
         else
           echo "missing"
@@ -37,12 +37,12 @@
       args:
         executable: "/bin/bash"
       loop:
-        - source: "{{ _archivematica_upgrade_es_config_dir }}"
-          destination: "{{ _archivematica_upgrade_preserved_es_config_dir }}"
-        - source: "{{ _archivematica_upgrade_es_data_dir }}"
-          destination: "{{ _archivematica_upgrade_preserved_es_data_dir }}"
-        - source: "{{ _archivematica_upgrade_es_log_dir }}"
-          destination: "{{ _archivematica_upgrade_preserved_es_log_dir }}"
+        - current: "{{ _archivematica_upgrade_es_config_dir }}"
+          preserved: "{{ _archivematica_upgrade_preserved_es_config_dir }}"
+        - current: "{{ _archivematica_upgrade_es_data_dir }}"
+          preserved: "{{ _archivematica_upgrade_preserved_es_data_dir }}"
+        - current: "{{ _archivematica_upgrade_es_log_dir }}"
+          preserved: "{{ _archivematica_upgrade_preserved_es_log_dir }}"
       register: "_archivematica_upgrade_moved_es6_directories"
       changed_when: "_archivematica_upgrade_moved_es6_directories.stdout == 'moved'"
 

@@ -16,7 +16,7 @@
 
 - name: "Wait for Elasticsearch 8 after restoring its configuration"
   ansible.builtin.uri:
-    url: "{{ _archivematica_upgrade_destination_es_url }}/_cluster/health?wait_for_status=yellow&timeout=60s"
+    url: "{{ _archivematica_upgrade_after_upgrade_es_url }}/_cluster/health?wait_for_status=yellow&timeout=60s"
     return_content: true
   register: "_archivematica_upgrade_es8_health_after_config_restore"
   until:

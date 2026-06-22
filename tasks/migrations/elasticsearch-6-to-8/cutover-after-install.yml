@@ -12,7 +12,7 @@
 
 - name: "Wait for packaged Elasticsearch 8"
   ansible.builtin.uri:
-    url: "{{ _archivematica_upgrade_destination_es_url }}/_cluster/health?wait_for_status=yellow&timeout=60s"
+    url: "{{ _archivematica_upgrade_after_upgrade_es_url }}/_cluster/health?wait_for_status=yellow&timeout=60s"
     return_content: true
   register: "_archivematica_upgrade_es8_health"
   until:
@@ -23,7 +23,7 @@
 
 - name: "Read packaged Elasticsearch 8 version"
   ansible.builtin.uri:
-    url: "{{ _archivematica_upgrade_destination_es_url }}"
+    url: "{{ _archivematica_upgrade_after_upgrade_es_url }}"
     return_content: true
   register: "_archivematica_upgrade_es8_response"
 
@@ -32,8 +32,8 @@
     that:
       - >-
         _archivematica_upgrade_es8_response.json.version.number
-        is version(_archivematica_upgrade_es_destination_min_version, '>=')
+        is version(_archivematica_upgrade_es_after_upgrade_min_version, '>=')
       - >-
         _archivematica_upgrade_es8_response.json.version.number
-        is version(_archivematica_upgrade_es_destination_max_version, '<')
+        is version(_archivematica_upgrade_es_after_upgrade_max_version, '<')
     fail_msg: "The Archivematica installation automation did not install Elasticsearch 8."

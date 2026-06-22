@@ -2,7 +2,7 @@
 - name: "Poll Elasticsearch remote reindex for {{ _archivematica_upgrade_reindex_index }}"
   ansible.builtin.uri:
     url: >-
-      {{ _archivematica_upgrade_destination_es_url }}/_tasks/{{
+      {{ _archivematica_upgrade_after_upgrade_es_url }}/_tasks/{{
         _archivematica_upgrade_reindex_task_ids[_archivematica_upgrade_reindex_index]
       }}
     return_content: true
@@ -29,7 +29,7 @@
       The persisted Elasticsearch remote-reindex task ID
       {{ _archivematica_upgrade_reindex_task_ids[_archivematica_upgrade_reindex_index] }}
       for {{ _archivematica_upgrade_reindex_index }} is no longer valid. Stop
-      Archivematica services, review or recreate the destination indices, remove
+      Archivematica services, review or recreate the after-upgrade indices, remove
       {{ _archivematica_upgrade_reindex_task_ids_file }}, and rerun
       the migrate phase.
 

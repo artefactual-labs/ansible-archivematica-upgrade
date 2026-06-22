@@ -91,14 +91,14 @@
       environments.
   when: archivematica_upgrade_es6_archive_url | length == 0
 
-- name: "Download Elasticsearch {{ _archivematica_upgrade_source_es_version }}"
+- name: "Download Elasticsearch {{ _archivematica_upgrade_before_upgrade_es_version }}"
   ansible.builtin.get_url:
     url: >-
       {{
         archivematica_upgrade_es6_archive_url |
         default(
           'https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-' ~
-          _archivematica_upgrade_source_es_version ~
+          _archivematica_upgrade_before_upgrade_es_version ~
           '.tar.gz',
           true
         )
@@ -109,7 +109,7 @@
         archivematica_upgrade_es6_checksum |
         default(
           'sha512:https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-' ~
-          _archivematica_upgrade_source_es_version ~
+          _archivematica_upgrade_before_upgrade_es_version ~
           '.tar.gz.sha512',
           true
         )
@@ -151,10 +151,10 @@
     mv \
       '{{ _archivematica_upgrade_es6_dir }}/data.tmp' \
       '{{ _archivematica_upgrade_es6_dir }}/data'
-    touch '{{ _archivematica_upgrade_es6_dir }}/.archivematica-source-data-copied'
+    touch '{{ _archivematica_upgrade_es6_dir }}/.archivematica-before-upgrade-data-copied'
   args:
     executable: "/bin/bash"
-    creates: "{{ _archivematica_upgrade_es6_dir }}/.archivematica-source-data-copied"
+    creates: "{{ _archivematica_upgrade_es6_dir }}/.archivematica-before-upgrade-data-copied"
   async: "{{ archivematica_upgrade_es_data_timeout | int }}"
   poll: 10
 

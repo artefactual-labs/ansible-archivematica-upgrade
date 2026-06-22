@@ -19,7 +19,7 @@
   poll: 0
   changed_when: false
 
-- name: "Enable missing destination index marker"
+- name: "Enable missing after-upgrade index marker"
   ansible.builtin.copy:
     content: ""
     dest: "{{ _phase_coverage_fixture_root }}/missing-index"
@@ -27,22 +27,22 @@
     group: "root"
     mode: "0644"
 
-- name: "Verify reindex rejects missing destination indices"
+- name: "Verify reindex rejects missing after-upgrade indices"
   block:
-    - name: "Run perform-reindex with missing destination index"
+    - name: "Run perform-reindex with missing after-upgrade index"
       ansible.builtin.include_tasks: "run-migration-file.yml"
       vars:
         _phase_coverage_migration_file: "perform-reindex"
 
-    - name: "Fail when reindex accepts missing destination index"
+    - name: "Fail when reindex accepts missing after-upgrade index"
       ansible.builtin.fail:
-        msg: "perform-reindex accepted missing destination index"
+        msg: "perform-reindex accepted missing after-upgrade index"
   rescue:
-    - name: "Require missing destination index failure"
+    - name: "Require missing after-upgrade index failure"
       ansible.builtin.assert:
         that:
           - ansible_failed_result is defined
-          - "'destination' in (ansible_failed_result.msg | default(''))"
+          - "'after-upgrade' in (ansible_failed_result.msg | default(''))"
 
 - name: "Reset reindex fixture markers and state"
   ansible.builtin.file:
@@ -50,29 +50,29 @@
     state: "absent"
   loop:
     - "{{ _phase_coverage_fixture_root }}/missing-index"
-    - "{{ _phase_coverage_fixture_root }}/destination-counts.json"
+    - "{{ _phase_coverage_fixture_root }}/after-upgrade-counts.json"
     - "{{ _archivematica_upgrade_reindex_task_ids_file }}"
 
-- name: "Enable non-empty destination index marker"
+- name: "Enable non-empty after-upgrade index marker"
   ansible.builtin.copy:
     content: ""
-    dest: "{{ _phase_coverage_fixture_root }}/destination-nonempty"
+    dest: "{{ _phase_coverage_fixture_root }}/after-upgrade-nonempty"
     owner: "root"
     group: "root"
     mode: "0644"
 
-- name: "Verify reindex rejects non-empty destination indices"
+- name: "Verify reindex rejects non-empty after-upgrade indices"
   block:
-    - name: "Run perform-reindex with non-empty destination index"
+    - name: "Run perform-reindex with non-empty after-upgrade index"
       ansible.builtin.include_tasks: "run-migration-file.yml"
       vars:
         _phase_coverage_migration_file: "perform-reindex"
 
-    - name: "Fail when reindex accepts non-empty destination index"
+    - name: "Fail when reindex accepts non-empty after-upgrade index"
       ansible.builtin.fail:
-        msg: "perform-reindex accepted non-empty destination index"
+        msg: "perform-reindex accepted non-empty after-upgrade index"
   rescue:
-    - name: "Require non-empty destination index failure"
+    - name: "Require non-empty after-upgrade index failure"
       ansible.builtin.assert:
         that:
           - ansible_failed_result is defined
@@ -80,7 +80,7 @@
 
 - name: "Reset non-empty marker"
   ansible.builtin.file:
-    path: "{{ _phase_coverage_fixture_root }}/destination-nonempty"
+    path: "{{ _phase_coverage_fixture_root }}/after-upgrade-nonempty"
     state: "absent"
 
 - name: "Write invalid persisted reindex task IDs"
@@ -148,7 +148,7 @@
   loop:
     - "{{ _phase_coverage_fixture_root }}/obsolete-task"
     - "{{ _archivematica_upgrade_reindex_task_ids_file }}"
-    - "{{ _phase_coverage_fixture_root }}/destination-counts.json"
+    - "{{ _phase_coverage_fixture_root }}/after-upgrade-counts.json"
 
 - name: "Enable missing submitted task marker"
   ansible.builtin.copy:
@@ -182,7 +182,7 @@
   loop:
     - "{{ _phase_coverage_fixture_root }}/submit-missing-task"
     - "{{ _archivematica_upgrade_reindex_task_ids_file }}"
-    - "{{ _phase_coverage_fixture_root }}/destination-counts.json"
+    - "{{ _phase_coverage_fixture_root }}/after-upgrade-counts.json"
 
 - name: "Write task IDs for no-response poll branch"
   ansible.builtin.copy:
@@ -224,7 +224,7 @@
   loop:
     - "{{ _phase_coverage_fixture_root }}/task-no-response"
     - "{{ _archivematica_upgrade_reindex_task_ids_file }}"
-    - "{{ _phase_coverage_fixture_root }}/destination-counts.json"
+    - "{{ _phase_coverage_fixture_root }}/after-upgrade-counts.json"
 
 - name: "Enable reindex failure marker"
   ansible.builtin.copy:
@@ -258,41 +258,41 @@
   loop:
     - "{{ _phase_coverage_fixture_root }}/reindex-failure"
     - "{{ _archivematica_upgrade_reindex_task_ids_file }}"
-    - "{{ _phase_coverage_fixture_root }}/destination-counts.json"
+    - "{{ _phase_coverage_fixture_root }}/after-upgrade-counts.json"
 
-- name: "Enable destination mismatch marker"
+- name: "Enable after-upgrade mismatch marker"
   ansible.builtin.copy:
     content: ""
-    dest: "{{ _phase_coverage_fixture_root }}/destination-mismatch"
+    dest: "{{ _phase_coverage_fixture_root }}/after-upgrade-mismatch"
     owner: "root"
     group: "root"
     mode: "0644"
 
-- name: "Verify reindex rejects destination count mismatches"
+- name: "Verify reindex rejects after-upgrade count mismatches"
   block:
-    - name: "Run perform-reindex with destination count mismatch"
+    - name: "Run perform-reindex with after-upgrade count mismatch"
       ansible.builtin.include_tasks: "run-migration-file.yml"
       vars:
         _phase_coverage_migration_file: "perform-reindex"
 
-    - name: "Fail when reindex accepts destination count mismatch"
+    - name: "Fail when reindex accepts after-upgrade count mismatch"
       ansible.builtin.fail:
-        msg: "perform-reindex accepted destination count mismatch"
+        msg: "perform-reindex accepted after-upgrade count mismatch"
   rescue:
-    - name: "Require destination count mismatch failure"
+    - name: "Require after-upgrade count mismatch failure"
       ansible.builtin.assert:
         that:
           - ansible_failed_result is defined
           - "'do not match' in (ansible_failed_result.msg | default(''))"
 
-- name: "Reset destination mismatch marker"
+- name: "Reset after-upgrade mismatch marker"
   ansible.builtin.file:
     path: "{{ item }}"
     state: "absent"
   loop:
-    - "{{ _phase_coverage_fixture_root }}/destination-mismatch"
+    - "{{ _phase_coverage_fixture_root }}/after-upgrade-mismatch"
     - "{{ _archivematica_upgrade_reindex_task_ids_file }}"
-    - "{{ _phase_coverage_fixture_root }}/destination-counts.json"
+    - "{{ _phase_coverage_fixture_root }}/after-upgrade-counts.json"
 
 - name: "Write valid persisted reindex task IDs"
   ansible.builtin.copy:
@@ -302,10 +302,10 @@
     group: "root"
     mode: "0640"
 
-- name: "Enable destination source counts marker"
+- name: "Enable after-upgrade counts match before-upgrade marker"
   ansible.builtin.copy:
     content: ""
-    dest: "{{ _phase_coverage_fixture_root }}/destination-source-counts"
+    dest: "{{ _phase_coverage_fixture_root }}/after-upgrade-counts-match-before-upgrade"
     owner: "root"
     group: "root"
     mode: "0644"

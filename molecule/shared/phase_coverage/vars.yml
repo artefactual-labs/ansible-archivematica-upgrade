@@ -27,8 +27,8 @@ archivematica_upgrade_snapshot_confirmed: true
 archivematica_upgrade_cleanup_confirmed: true
 archivematica_upgrade_restore_confirmed: true
 archivematica_upgrade_remove_rollback_data_confirmed: false
-archivematica_upgrade_source_es_url: "{{ _phase_coverage_es6_url }}"
-archivematica_upgrade_destination_es_url: "{{ _phase_coverage_es8_url }}"
+archivematica_upgrade_before_upgrade_es_url: "{{ _phase_coverage_es6_url }}"
+archivematica_upgrade_after_upgrade_es_url: "{{ _phase_coverage_es8_url }}"
 archivematica_upgrade_es_data_dir: "{{ _phase_coverage_fixture_root }}/elasticsearch-data"
 archivematica_upgrade_es6_user: "molecule-es6"
 archivematica_upgrade_es6_archive_url: "{{ _phase_coverage_es6_archive_url }}"
