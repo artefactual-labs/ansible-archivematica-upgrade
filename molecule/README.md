@@ -3,8 +3,8 @@
 The role uses Molecule for task-level regression coverage. The default
 development target is Ubuntu 24.04 using a pinned
 `geerlingguy/docker-ubuntu2404-ansible` image digest. Phase and migration
-lifecycle coverage is enforced on Ubuntu 24.04 and Rocky Linux 9. Rocky Linux
-9 is the automated Red Hat-family compatibility target.
+lifecycle coverage is enforced on Ubuntu 24.04, Ubuntu 22.04, and Rocky Linux
+9. Rocky Linux 9 is the automated Red Hat-family compatibility target.
 
 The scenarios are hermetic. They create temporary Archivematica files,
 service units, package metadata, database state, API responses, APT key data,
@@ -29,10 +29,10 @@ is:
 | Platform | Purpose |
 | --- | --- |
 | Ubuntu 24.04 | Default Debian-family lifecycle coverage target. |
+| Ubuntu 22.04 | Older supported Debian-family lifecycle coverage target. |
 | Rocky Linux 9 | Red Hat-family lifecycle coverage target. |
 
-Ubuntu 22.04 remains an optional manual compatibility target. RHEL is not part
-of the automated test matrix for this repository.
+RHEL is not part of the automated test matrix for this repository.
 
 ## Platform images
 
@@ -106,6 +106,7 @@ Use explicit platform coverage targets for other phase matrix entries:
 
 ```sh
 make molecule-phase-coverage-ubuntu2404
+make molecule-phase-coverage-ubuntu2204
 make molecule-phase-coverage-rockylinux9
 ```
 
@@ -114,9 +115,13 @@ Run the full local validation set before submitting a change:
 ```sh
 make molecule-test
 make molecule-coverage
+make molecule-test-ubuntu2204
+make molecule-test-rockylinux9
 make molecule-test-phases
+make molecule-test-phases-ubuntu2204
 make molecule-test-phases-rockylinux9
 make molecule-phase-coverage-ubuntu2404
+make molecule-phase-coverage-ubuntu2204
 make molecule-phase-coverage-rockylinux9
 pre-commit run --all-files
 git diff --check
@@ -180,10 +185,10 @@ Coverage must be enforced per platform. Do not aggregate Ubuntu and Rocky files
 into one verification command, because aggregation can hide a task that only ran
 on one platform while being skipped on the other.
 
-## Optional platforms
+## Single platform runs
 
-Ubuntu 22.04 is optional manual compatibility coverage. To run a single common
-scenario on another supported image, use the lower-level platform target.
+To run a single common scenario on a specific supported image, use the
+lower-level platform target.
 
 Common scenario examples:
 
@@ -214,21 +219,20 @@ make molecule-phase-coverage \
 Pull requests run these required checks:
 
 - `Static checks`
-- `Molecule common`, on Ubuntu 24.04
+- `Molecule common`, on Ubuntu 24.04, Ubuntu 22.04, and Rocky Linux 9
 - `Molecule phase coverage (ubuntu2404)`
+- `Molecule phase coverage (ubuntu2204)`
 - `Molecule phase coverage (rockylinux9)`
 - `Validate GitHub Action pinning`, when workflows change
 
-The phase workflow runs each scenario separately for Ubuntu 24.04 and Rocky
-Linux 9, uploads per-scenario JSONL coverage files, then verifies each
-platform's aggregate coverage in a separate job. The final coverage artifacts
-are:
+The phase workflow runs each scenario separately for Ubuntu 24.04, Ubuntu
+22.04, and Rocky Linux 9, uploads per-scenario JSONL coverage files, then
+verifies each platform's aggregate coverage in a separate job. The final
+coverage artifacts are:
 
 - `molecule-ubuntu2404-phase-coverage`
+- `molecule-ubuntu2204-phase-coverage`
 - `molecule-rockylinux9-phase-coverage`
-
-The manual `Molecule compatibility` workflow runs Ubuntu 22.04 common and phase
-compatibility coverage.
 
 ## Coverage model
 

@@ -7,7 +7,9 @@ MOLECULE_ANSIBLE_HOME ?= $(CURDIR)/.ansible
 MOLECULE_CALLBACK_PLUGINS ?= $(CURDIR)/molecule/common/callback_plugins
 MOLECULE_COVERAGE_CONFIG ?= molecule/$(MOLECULE_SCENARIO)/coverage.yml
 MOLECULE_COVERAGE_FILE ?= $(MOLECULE_ANSIBLE_HOME)/molecule/common-task-coverage.jsonl
+MOLECULE_COVERAGE_PLATFORM ?=
 MOLECULE_COVERAGE_CMD = $(UV_RUN) --group molecule python molecule/common/scripts/verify_task_coverage.py
+MOLECULE_COVERAGE_PLATFORM_ARGS = $(if $(MOLECULE_COVERAGE_PLATFORM),--platform $(MOLECULE_COVERAGE_PLATFORM),)
 MOLECULE_COLLECTIONS_PATH ?= $(MOLECULE_ANSIBLE_HOME)/collections
 MOLECULE_EPHEMERAL_DIRECTORY ?=
 MOLECULE_PLATFORM_NAME ?= instance
@@ -60,6 +62,7 @@ molecule-coverage: ## Verify Molecule task coverage from the latest common scena
 	@$(MOLECULE_COVERAGE_CMD) \
 		--project-root . \
 		--coverage-file $(MOLECULE_COVERAGE_FILE) \
+		$(MOLECULE_COVERAGE_PLATFORM_ARGS) \
 		--config $(MOLECULE_COVERAGE_CONFIG)
 
 molecule-phase-coverage: ## Verify aggregate Molecule coverage for phase and migration scenarios

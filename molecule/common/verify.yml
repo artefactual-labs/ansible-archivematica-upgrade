@@ -14,6 +14,14 @@
     _molecule_common_populated_bin: "{{ _molecule_common_fixture_root }}/populated-bin"
     _molecule_common_populated_application_state_file: >-
       {{ _molecule_common_fixture_root }}/populated-application-state.json
+    _molecule_common_platform: >-
+      {{
+        'ubuntu' ~ (ansible_distribution_version | replace('.', ''))
+        if ansible_distribution == 'Ubuntu'
+        else 'rockylinux' ~ ansible_distribution_major_version
+        if ansible_distribution == 'Rocky'
+        else ansible_distribution | lower
+      }}
     _molecule_common_retry_aip_storage_file: "{{ _molecule_common_fixture_root }}/retry-aip-storage-stats.json"
     _molecule_common_retry_marker: "{{ _molecule_common_fixture_root }}/fail-ss-aip-count-once"
     _molecule_common_service_units:
@@ -123,13 +131,29 @@
     - name: "Inspect generated common artifact files"
       ansible.builtin.stat:
         path: "{{ item.path }}"
-      loop:
-        - path: "{{ _archivematica_upgrade_after_upgrade_aip_storage_stats_file }}"
-          mode: "0640"
-        - path: "{{ _archivematica_upgrade_after_upgrade_application_state_file }}"
-          mode: "0640"
-        - path: "{{ archivematica_upgrade_archivematica_apt_keyring_path }}"
-          mode: "0644"
+      loop: >-
+        {{
+          [
+            {
+              'path': _archivematica_upgrade_after_upgrade_aip_storage_stats_file,
+              'mode': '0640',
+            },
+            {
+              'path': _archivematica_upgrade_after_upgrade_application_state_file,
+              'mode': '0640',
+            },
+          ] +
+          (
+            [
+              {
+                'path': archivematica_upgrade_archivematica_apt_keyring_path,
+                'mode': '0644',
+              },
+            ]
+            if ansible_distribution == 'Ubuntu'
+            else []
+          )
+        }}
       loop_control:
         label: "{{ item.path }}"
       register: "_molecule_common_artifact_stats"
@@ -529,6 +553,8 @@
           - "{{ _molecule_common_role_path }}"
           - "--coverage-file"
           - "{{ _molecule_common_coverage_file }}"
+          - "--platform"
+          - "{{ _molecule_common_platform }}"
           - "--config"
           - "{{ _molecule_common_coverage_config }}"
       changed_when: false
