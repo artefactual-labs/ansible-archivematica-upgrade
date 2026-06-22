@@ -1,0 +1,124 @@
+---
+- name: "Require service fixture inputs"
+  ansible.builtin.assert:
+    that:
+      - molecule_service_fixture_bin is string
+      - molecule_service_fixture_bin | length > 0
+      - molecule_service_fixture_names is sequence
+      - molecule_service_fixture_names is not string
+      - molecule_service_fixture_names | length > 0
+      - molecule_service_fixture_status_names | default(molecule_service_fixture_names) is sequence
+      - molecule_service_fixture_status_names | default(molecule_service_fixture_names) is not string
+      - molecule_service_fixture_status_names | default(molecule_service_fixture_names) | length > 0
+      - molecule_service_fixture_stopped_markers | default([]) is sequence
+      - molecule_service_fixture_stopped_markers | default([]) is not string
+
+- name: "Install service unit fixtures"
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item }}.service"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Molecule fixture for {{ item }}
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/bin/true
+      ExecStop=/bin/true
+
+      [Install]
+      WantedBy=multi-user.target
+  loop: "{{ molecule_service_fixture_names }}"
+
+- name: "Install service command fixture"
+  ansible.builtin.copy:
+    dest: "{{ molecule_service_fixture_bin }}/service"
+    owner: "root"
+    group: "root"
+    mode: "0755"
+    content: |
+      #!/bin/sh
+      is_stopped() {
+        service="$1"
+        case "$service" in
+      {% for marker in molecule_service_fixture_stopped_markers | default([]) %}
+          {{ marker.service }})
+            test -f "{{ marker.path }}" && return 0
+            ;;
+      {% endfor %}
+        esac
+        return 1
+      }
+
+      case "$1" in
+        --status-all)
+          for service in{% for service in molecule_service_fixture_status_names | default(molecule_service_fixture_names) %} "{{ service }}"{% endfor %}; do
+            if [ -x "/etc/init.d/$service" ] || [ -f "/etc/systemd/system/$service.service" ]; then
+              if is_stopped "$service"; then
+                printf ' [ - ]  %s\n' "$service"
+              else
+                printf ' [ + ]  %s\n' "$service"
+              fi
+            fi
+          done
+          ;;
+        *)
+          service="$1"
+          action="${2:-}"
+          if [ "$action" = "status" ]; then
+            if is_stopped "$service"; then
+              exit 3
+            fi
+            if [ -x "/etc/init.d/$service" ] || [ -f "/etc/systemd/system/$service.service" ]; then
+              exit 0
+            fi
+            exit 3
+          fi
+          exit 0
+          ;;
+      esac
+
+- name: "Install chkconfig command fixture"
+  ansible.builtin.copy:
+    dest: "{{ molecule_service_fixture_bin }}/chkconfig"
+    owner: "root"
+    group: "root"
+    mode: "0755"
+    content: |
+      #!/bin/sh
+      for service in{% for service in molecule_service_fixture_status_names | default(molecule_service_fixture_names) %} "{{ service }}"{% endfor %}; do
+        if [ -x "/etc/init.d/$service" ] || [ -f "/etc/systemd/system/$service.service" ]; then
+          printf '%s 0:off 1:off 2:on 3:on 4:on 5:on 6:off\n' "$service"
+        fi
+      done
+
+- name: "Install init script service fixtures"
+  ansible.builtin.copy:
+    dest: "/etc/init.d/{{ item }}"
+    owner: "root"
+    group: "root"
+    mode: "0755"
+    content: |
+      #!/bin/sh
+      marker="/tmp/{{ item }}.started"
+      case "$1" in
+        start)
+          touch "$marker"
+          exit 0
+          ;;
+        stop)
+          rm -f "$marker"
+          exit 0
+          ;;
+        status)
+          test -f "$marker"
+          exit $?
+          ;;
+        *)
+          exit 0
+          ;;
+      esac
+  loop: "{{ molecule_service_fixture_names }}"

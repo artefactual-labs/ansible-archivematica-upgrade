@@ -88,25 +88,16 @@
         - "{{ _phase_coverage_processing_config_dir }}/defaultProcessingMCP.xml"
         - "{{ _phase_coverage_storage_db }}"
 
-    - name: "Install phase coverage service units"
-      ansible.builtin.copy:
-        dest: "/etc/systemd/system/{{ item }}.service"
-        owner: "root"
-        group: "root"
-        mode: "0644"
-        content: |
-          [Unit]
-          Description=Phase coverage fixture {{ item }}
-
-          [Service]
-          Type=oneshot
-          RemainAfterExit=yes
-          ExecStart=/bin/true
-          ExecStop=/bin/true
-
-          [Install]
-          WantedBy=multi-user.target
-      loop: "{{ _phase_coverage_service_units }}"
+    - name: "Install phase coverage service discovery fixtures"
+      ansible.builtin.include_tasks: "../service_fixtures.yml"
+      vars:
+        molecule_service_fixture_bin: "{{ _phase_coverage_fixture_bin }}"
+        molecule_service_fixture_names: "{{ _phase_coverage_service_units }}"
+        molecule_service_fixture_status_names: >-
+          {{ _phase_coverage_service_units + ['archivematica-late'] }}
+        molecule_service_fixture_stopped_markers:
+          - service: "archivematica-dashboard"
+            path: "{{ _phase_coverage_fixture_root }}/dashboard-stopped"
 
     - name: "Install MySQL command fixture"
       ansible.builtin.copy:
@@ -225,96 +216,6 @@
             esac
           done
           cp "$input" "$output"
-
-    - name: "Install service command fixture"
-      ansible.builtin.copy:
-        dest: "{{ _phase_coverage_fixture_bin }}/service"
-        owner: "root"
-        group: "root"
-        mode: "0755"
-        content: |
-          #!/bin/sh
-          case "$1" in
-            --status-all)
-              for service in \
-                archivematica-dashboard \
-                archivematica-late \
-                archivematica-mcp-client \
-                archivematica-mcp-server \
-                archivematica-storage-service
-              do
-                if [ -x "/etc/init.d/$service" ] || [ -f "/etc/systemd/system/$service.service" ]; then
-                  if [ "$service" = "archivematica-dashboard" ] && [ -f "{{ _phase_coverage_fixture_root }}/dashboard-stopped" ]; then
-                    printf ' [ - ]  %s\n' "$service"
-                  else
-                    printf ' [ + ]  %s\n' "$service"
-                  fi
-                fi
-              done
-              ;;
-            *)
-              service="$1"
-              action="${2:-}"
-              if [ "$action" = "status" ]; then
-                if [ "$service" = "archivematica-dashboard" ] && [ -f "{{ _phase_coverage_fixture_root }}/dashboard-stopped" ]; then
-                  exit 3
-                fi
-                if [ -x "/etc/init.d/$service" ] || [ -f "/etc/systemd/system/$service.service" ]; then
-                  exit 0
-                fi
-                exit 3
-              fi
-              exit 0
-              ;;
-          esac
-
-    - name: "Install chkconfig command fixture"
-      ansible.builtin.copy:
-        dest: "{{ _phase_coverage_fixture_bin }}/chkconfig"
-        owner: "root"
-        group: "root"
-        mode: "0755"
-        content: |
-          #!/bin/sh
-          for service in \
-            archivematica-dashboard \
-            archivematica-late \
-            archivematica-mcp-client \
-            archivematica-mcp-server \
-            archivematica-storage-service
-          do
-            if [ -x "/etc/init.d/$service" ] || [ -f "/etc/systemd/system/$service.service" ]; then
-              printf '%s 0:off 1:off 2:on 3:on 4:on 5:on 6:off\n' "$service"
-            fi
-          done
-
-    - name: "Install init script service fixtures"
-      ansible.builtin.copy:
-        dest: "/etc/init.d/{{ item }}"
-        owner: "root"
-        group: "root"
-        mode: "0755"
-        content: |
-          #!/bin/sh
-          marker="/tmp/{{ item }}.started"
-          case "$1" in
-            start)
-              touch "$marker"
-              exit 0
-              ;;
-            stop)
-              rm -f "$marker"
-              exit 0
-              ;;
-            status)
-              test -f "$marker"
-              exit $?
-              ;;
-            *)
-              exit 0
-              ;;
-          esac
-      loop: "{{ _phase_coverage_service_units }}"
 
     - name: "Install phase coverage HTTP fixture"
       ansible.builtin.copy:

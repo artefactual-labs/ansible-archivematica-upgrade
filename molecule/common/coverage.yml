@@ -11,7 +11,57 @@ scopes:
   - "tasks/migrations/elasticsearch-6-to-8/load-state.yml"
 # Any task that is expected to be skipped on a specific platform must be listed
 # here with a reason. Unlisted only-skipped tasks fail coverage verification.
-allowed_skips: []
+allowed_skips:
+  - path: "tasks/common/refresh-archivematica-apt-key.yml"
+    name: "Create Archivematica apt keyring directory"
+    platforms:
+      - "rockylinux9"
+    reason: "Archivematica apt key refresh is Ubuntu-only."
+  - path: "tasks/common/refresh-archivematica-apt-key.yml"
+    name: "Download renewed Archivematica apt key"
+    platforms:
+      - "rockylinux9"
+    reason: "Archivematica apt key refresh is Ubuntu-only."
+  - path: "tasks/common/refresh-archivematica-apt-key.yml"
+    name: "Dearmor renewed Archivematica apt key"
+    platforms:
+      - "rockylinux9"
+    reason: "Archivematica apt key refresh is Ubuntu-only."
+  - path: "tasks/common/refresh-archivematica-apt-key.yml"
+    name: "Compare renewed Archivematica apt keyring"
+    platforms:
+      - "rockylinux9"
+    reason: "Archivematica apt key refresh is Ubuntu-only."
+  - path: "tasks/common/refresh-archivematica-apt-key.yml"
+    name: "Install renewed Archivematica apt keyring"
+    platforms:
+      - "rockylinux9"
+    reason: "Archivematica apt key refresh is Ubuntu-only."
+  - path: "tasks/common/refresh-archivematica-apt-key.yml"
+    name: "Remove temporary Archivematica apt keyring"
+    platforms:
+      - "rockylinux9"
+    reason: "Archivematica apt key refresh is Ubuntu-only."
+  - path: "tasks/common/refresh-archivematica-apt-key.yml"
+    name: "Find apt source list files"
+    platforms:
+      - "rockylinux9"
+    reason: "Archivematica apt key refresh is Ubuntu-only."
+  - path: "tasks/common/refresh-archivematica-apt-key.yml"
+    name: "Update existing Archivematica apt source signed-by values"
+    platforms:
+      - "rockylinux9"
+    reason: "Archivematica apt key refresh is Ubuntu-only."
+  - path: "tasks/common/refresh-archivematica-apt-key.yml"
+    name: "Add signed-by to bracketed Archivematica apt sources"
+    platforms:
+      - "rockylinux9"
+    reason: "Archivematica apt key refresh is Ubuntu-only."
+  - path: "tasks/common/refresh-archivematica-apt-key.yml"
+    name: "Add signed-by to unbracketed Archivematica apt sources"
+    platforms:
+      - "rockylinux9"
+    reason: "Archivematica apt key refresh is Ubuntu-only."
 required_events:
   - path: "tasks/common/load-context.yml"
     name: "Validate Archivematica upgrade identifier"

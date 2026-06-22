@@ -82,45 +82,11 @@
         mode: "0644"
       when: ansible_distribution == "Ubuntu"
 
-    - name: "Install service unit fixtures"
-      ansible.builtin.copy:
-        dest: "/etc/systemd/system/{{ item }}.service"
-        owner: "root"
-        group: "root"
-        mode: "0644"
-        content: |
-          [Unit]
-          Description=Molecule fixture for {{ item }}
-
-          [Service]
-          Type=simple
-          ExecStart=/usr/bin/sleep infinity
-
-          [Install]
-          WantedBy=multi-user.target
-      loop: "{{ _molecule_common_service_units }}"
-
-    - name: "Install Storage Service init fixture"
-      ansible.builtin.copy:
-        dest: "/etc/init.d/archivematica-storage-service"
-        owner: "root"
-        group: "root"
-        mode: "0755"
-        content: |
-          #!/bin/sh
-          marker="/tmp/archivematica-storage-service.started"
-          case "$1" in
-            start)
-              touch "$marker"
-              ;;
-            stop)
-              rm -f "$marker"
-              ;;
-            status)
-              test -f "$marker"
-              exit $?
-              ;;
-          esac
+    - name: "Install common service discovery fixtures"
+      ansible.builtin.include_tasks: "../shared/service_fixtures.yml"
+      vars:
+        molecule_service_fixture_bin: "{{ _molecule_common_fixture_bin }}"
+        molecule_service_fixture_names: "{{ _molecule_common_service_units }}"
 
     - name: "Reset Storage Service retry marker"
       ansible.builtin.file:
@@ -176,32 +142,6 @@
             shift
           done
           cp "$input" "$output"
-
-    - name: "Install service command fixture"
-      ansible.builtin.copy:
-        dest: "{{ _molecule_common_fixture_bin }}/service"
-        owner: "root"
-        group: "root"
-        mode: "0755"
-        content: |
-          #!/bin/sh
-          case "$1" in
-            --status-all)
-              printf ' [ + ]  archivematica-dashboard.service\n'
-              printf ' [ + ]  archivematica-mcp-client.service\n'
-              printf ' [ + ]  archivematica-mcp-server.service\n'
-              printf ' [ + ]  archivematica-storage-service.service\n'
-              printf ' [ + ]  gearman-job-server.service\n'
-              printf ' [ + ]  nginx.service\n'
-              ;;
-            archivematica-storage-service)
-              case "$2" in
-                start|status)
-                  exit 0
-                  ;;
-              esac
-              ;;
-          esac
 
     - name: "Install HTTP API fixture"
       ansible.builtin.copy:
