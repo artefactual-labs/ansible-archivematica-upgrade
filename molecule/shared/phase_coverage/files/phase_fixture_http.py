@@ -174,6 +174,21 @@ class FixtureHandler(BaseHTTPRequestHandler):
         if self.has_marker("task-no-response"):
             self.send_json({"completed": True})
             return
+        if self.has_marker("task-error"):
+            self.send_json(
+                {
+                    "completed": True,
+                    "error": {
+                        "type": "illegal_argument_exception",
+                        "reason": "fixture remote reindex task error",
+                        "caused_by": {
+                            "type": "content_too_long_exception",
+                            "reason": "fixture response exceeded the remote reindex buffer",
+                        },
+                    },
+                }
+            )
+            return
 
         response: dict[str, Any] = {"failures": [], "timed_out": False}
         if self.has_marker("reindex-failure"):

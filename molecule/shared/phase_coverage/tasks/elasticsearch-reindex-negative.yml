@@ -226,6 +226,51 @@
     - "{{ _archivematica_upgrade_reindex_task_ids_file }}"
     - "{{ _phase_coverage_fixture_root }}/after-upgrade-counts.json"
 
+- name: "Write task IDs for task-error poll branch"
+  ansible.builtin.copy:
+    content: '{"aips": "fixture:aips", "aipfiles": "fixture:aipfiles"}'
+    dest: "{{ _archivematica_upgrade_reindex_task_ids_file }}"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+
+- name: "Enable task-error marker"
+  ansible.builtin.copy:
+    content: ""
+    dest: "{{ _phase_coverage_fixture_root }}/task-error"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+
+- name: "Verify reindex reports failed Elasticsearch tasks"
+  block:
+    - name: "Run perform-reindex with failed task response"
+      ansible.builtin.include_tasks: "run-migration-file.yml"
+      vars:
+        _phase_coverage_migration_file: "perform-reindex"
+
+    - name: "Fail when reindex hides failed task response"
+      ansible.builtin.fail:
+        msg: "perform-reindex hid failed task response"
+  rescue:
+    - name: "Require failed task response diagnostics"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'remote-reindex task' in (ansible_failed_result.msg | default(''))"
+          - "'failed' in (ansible_failed_result.msg | default(''))"
+          - "'fixture remote reindex task error' in (ansible_failed_result.msg | default(''))"
+          - "'content_too_long_exception' in (ansible_failed_result.msg | default(''))"
+
+- name: "Reset task-error marker"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: "absent"
+  loop:
+    - "{{ _phase_coverage_fixture_root }}/task-error"
+    - "{{ _archivematica_upgrade_reindex_task_ids_file }}"
+    - "{{ _phase_coverage_fixture_root }}/after-upgrade-counts.json"
+
 - name: "Enable reindex failure marker"
   ansible.builtin.copy:
     content: ""

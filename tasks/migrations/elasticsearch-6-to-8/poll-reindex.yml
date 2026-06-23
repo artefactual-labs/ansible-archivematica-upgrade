@@ -33,6 +33,18 @@
       {{ _archivematica_upgrade_reindex_task_ids_file }}, and rerun
       the migrate phase.
 
+- name: "Fail when Elasticsearch remote-reindex task failed for {{ _archivematica_upgrade_reindex_index }}"
+  ansible.builtin.fail:
+    msg: |
+      Elasticsearch remote-reindex task
+      {{ _archivematica_upgrade_reindex_task_ids[_archivematica_upgrade_reindex_index] }}
+      for {{ _archivematica_upgrade_reindex_index }} failed.
+      Elasticsearch task error:
+      {{ _archivematica_upgrade_reindex_task.json.error | to_nice_json }}
+  when:
+    - _archivematica_upgrade_reindex_task.json.response is not defined
+    - _archivematica_upgrade_reindex_task.json.error is defined
+
 - name: "Require a completed Elasticsearch remote-reindex response for {{ _archivematica_upgrade_reindex_index }}"
   ansible.builtin.assert:
     that:
