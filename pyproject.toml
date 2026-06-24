@@ -7,7 +7,7 @@ dependencies = []
 
 [dependency-groups]
 ansible = [
-    "ansible==8.5.0",
+    "ansible==10.7.0",
     "jmespath",
 ]
 lint = [
@@ -19,9 +19,9 @@ lint = [
 molecule = [
     { include-group = "ansible" },
     "docker",
-    "molecule==6.0.3",
-    "molecule-plugins[docker]==23.5.3",
-    "requests<2.32",
+    "molecule==26.4.0",
+    "molecule-plugins[docker]==25.8.12",
+    "requests<2.35",
 ]
 
 [tool.ruff]
