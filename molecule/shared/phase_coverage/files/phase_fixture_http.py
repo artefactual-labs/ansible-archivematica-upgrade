@@ -159,6 +159,10 @@ class FixtureHandler(BaseHTTPRequestHandler):
         task_ids[index] = task_id
         self.write_json("reindex-task-ids.json", task_ids)
 
+        reindex_requests = self.read_json("reindex-requests.json", {})
+        reindex_requests[index] = payload
+        self.write_json("reindex-requests.json", reindex_requests)
+
         after_upgrade_counts = self.read_json("after-upgrade-counts.json", {})
         after_upgrade_counts[index] = (
             self.before_upgrade_count(index) if index in BEFORE_UPGRADE_COUNTS else 0

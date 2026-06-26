@@ -1,17 +1,45 @@
 ---
+- name: "Build Elasticsearch remote reindex source for {{ _archivematica_upgrade_reindex_index }}"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_reindex_source: >-
+      {{
+        {
+          'remote': {
+            'host': _archivematica_upgrade_es6_url,
+            'socket_timeout': archivematica_upgrade_reindex_timeout ~ 's',
+            'connect_timeout': '60s',
+          },
+          'index': _archivematica_upgrade_reindex_index,
+          'size': archivematica_upgrade_reindex_batch_size | int,
+        } |
+        combine(
+          (
+            {
+              '_source': {
+                'excludes': (
+                  _archivematica_upgrade_reindex_source_excludes[
+                    _archivematica_upgrade_reindex_index
+                  ] | default([])
+                ),
+              },
+            }
+          )
+          if (
+            _archivematica_upgrade_reindex_source_excludes[
+              _archivematica_upgrade_reindex_index
+            ] | default([]) | length > 0
+          )
+          else {}
+        )
+      }}
+
 - name: "Submit Elasticsearch remote reindex for {{ _archivematica_upgrade_reindex_index }}"
   ansible.builtin.uri:
     url: "{{ _archivematica_upgrade_after_upgrade_es_url }}/_reindex?wait_for_completion=false"
     method: "POST"
     body_format: "json"
     body:
-      source:
-        remote:
-          host: "{{ _archivematica_upgrade_es6_url }}"
-          socket_timeout: "{{ archivematica_upgrade_reindex_timeout }}s"
-          connect_timeout: "60s"
-        index: "{{ _archivematica_upgrade_reindex_index }}"
-        size: "{{ archivematica_upgrade_reindex_batch_size | int }}"
+      source: "{{ _archivematica_upgrade_reindex_source }}"
       dest:
         index: "{{ _archivematica_upgrade_reindex_index }}"
         op_type: "create"
