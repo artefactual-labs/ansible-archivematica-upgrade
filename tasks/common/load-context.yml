@@ -117,6 +117,9 @@
       - "aipfiles"
       - "transfers"
       - "transferfiles"
+    _archivematica_upgrade_reindex_source_excludes:
+      aips:
+        - "mets"
     _archivematica_upgrade_es6_user: "{{ archivematica_upgrade_es6_user | default(ansible_user | default('artefactual'), true) }}"
   when: _archivematica_upgrade_has_es6_to_8_migration
 

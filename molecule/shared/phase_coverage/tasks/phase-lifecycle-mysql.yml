@@ -27,6 +27,24 @@
   vars:
     _phase_coverage_phase: "migrate"
 
+- name: "Read submitted Elasticsearch reindex requests"
+  ansible.builtin.slurp:
+    src: "{{ _phase_coverage_fixture_root }}/reindex-requests.json"
+  register: "_phase_coverage_reindex_requests_content"
+
+- name: "Load submitted Elasticsearch reindex requests"
+  ansible.builtin.set_fact:
+    _phase_coverage_reindex_requests: >-
+      {{ _phase_coverage_reindex_requests_content.content | b64decode | from_json }}
+
+- name: "Require aips reindex to omit legacy embedded METS"
+  ansible.builtin.assert:
+    that:
+      - >-
+        _phase_coverage_reindex_requests['aips']['source']['_source']['excludes'] ==
+        ['mets']
+      - "'_source' not in _phase_coverage_reindex_requests['aipfiles']['source']"
+
 - name: "Run validate phase"
   ansible.builtin.include_tasks: "run-role-phase.yml"
   vars:

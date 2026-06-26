@@ -173,9 +173,10 @@ The temporary Elasticsearch archive is checked against Elastic's published
 SHA-512 checksum by default. After Elasticsearch 8 is installed, the role
 reindexes `aips`, `aipfiles`, `transfers`, and `transferfiles`, verifies the
 document counts, and restores the Elasticsearch configuration that existed
-before the temporary remote-reindex setting was applied. Configuration
-restoration and temporary Elasticsearch 6 shutdown also run when reindexing
-fails.
+before the temporary remote-reindex setting was applied. The `aips` reindex
+excludes the legacy embedded `mets` source field removed in Archivematica 1.11,
+while preserving the rest of each AIP document. Configuration restoration and
+temporary Elasticsearch 6 shutdown also run when reindexing fails.
 Remote reindexing runs as asynchronous Elasticsearch tasks. The role stores
 their IDs under
 `state/migrations/elasticsearch-6-to-8/reindex-task-ids.json` before polling so
