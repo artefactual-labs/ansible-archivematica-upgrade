@@ -5,11 +5,95 @@
 - name: "Load prepared Archivematica upgrade state"
   ansible.builtin.include_tasks: "common/load-state.yml"
 
+- name: "Inspect portable target import checkpoint"
+  ansible.builtin.stat:
+    path: "{{ _archivematica_upgrade_portable_import_checkpoint }}"
+  register: "_archivematica_upgrade_portable_import_checkpoint_state"
+  when: _archivematica_upgrade_handoff_mode == 'portable'
+
+- name: "Read portable target import checkpoint"
+  ansible.builtin.slurp:
+    src: "{{ _archivematica_upgrade_portable_import_checkpoint }}"
+  register: "_archivematica_upgrade_portable_import_checkpoint_content"
+  when:
+    - _archivematica_upgrade_handoff_mode == 'portable'
+    - _archivematica_upgrade_portable_import_checkpoint_state.stat.isreg | default(false)
+
+- name: "Require completed portable import and blocked target inputs"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_portable_import_checkpoint_state.stat.isreg | default(false)
+      - archivematica_upgrade_portable_target_inputs_blocked_confirmed | bool
+      - >-
+        _archivematica_upgrade_portable_import_checkpoint_content.content |
+        default('') |
+        b64decode |
+        trim ==
+        archivematica_upgrade_portable_manifest_sha256 | lower
+    fail_msg: >-
+      Run import-before-install with this manifest, keep target inputs blocked,
+      and confirm that state before target cutover.
+  when: _archivematica_upgrade_handoff_mode == 'portable'
+
+- name: "Detect installed target Archivematica versions"
+  ansible.builtin.include_tasks: "common/detect-installed-versions.yml"
+  when: _archivematica_upgrade_handoff_mode == 'portable'
+
+- name: "Require the selected target release"
+  ansible.builtin.assert:
+    that:
+      - >-
+        _archivematica_upgrade_installed_am_version ==
+        _archivematica_upgrade_path_config.target.archivematica_version
+      - >-
+        _archivematica_upgrade_installed_ss_version ==
+        _archivematica_upgrade_path_config.target.storage_service_version
+    fail_msg: >-
+      The external installer did not install the exact Archivematica and
+      Storage Service target releases selected by this upgrade path metadata.
+  when: _archivematica_upgrade_handoff_mode == 'portable'
+
 - name: "Stop Archivematica application services during migration"
   ansible.builtin.service:
     name: "{{ item }}"
     state: "stopped"
   loop: "{{ _archivematica_upgrade_application_services }}"
+
+- name: "Require a safe portable processing configuration path"
+  ansible.builtin.assert:
+    that:
+      - (_archivematica_upgrade_processing_config_dir | string) is match('^/[A-Za-z0-9._/-]+$')
+      - (_archivematica_upgrade_processing_config_dir | string) != '/'
+      - not (_archivematica_upgrade_processing_config_dir | string).endswith('/')
+      - "'..' not in (_archivematica_upgrade_processing_config_dir | string).split('/')"
+    fail_msg: >-
+      Set archivematica_upgrade_processing_config_dir to a simple absolute
+      path before restoring portable processing configuration files.
+  when: _archivematica_upgrade_handoff_mode == 'portable'
+
+- name: "Remove target Dashboard processing configuration files"
+  ansible.builtin.file:
+    path: "{{ _archivematica_upgrade_processing_config_dir }}"
+    state: "absent"
+  when: _archivematica_upgrade_handoff_mode == 'portable'
+
+- name: "Recreate target Dashboard processing configuration directory"
+  ansible.builtin.file:
+    path: "{{ _archivematica_upgrade_processing_config_dir }}"
+    state: "directory"
+    owner: "{{ _archivematica_upgrade_archivematica_user }}"
+    group: "{{ _archivematica_upgrade_archivematica_group }}"
+    mode: "0750"
+  when: _archivematica_upgrade_handoff_mode == 'portable'
+
+- name: "Restore portable Dashboard processing configuration files"
+  ansible.builtin.unarchive:
+    src: "{{ _archivematica_upgrade_processing_config_archive }}"
+    dest: "{{ _archivematica_upgrade_processing_config_dir }}"
+    remote_src: true
+    owner: "{{ _archivematica_upgrade_archivematica_user }}"
+    group: "{{ _archivematica_upgrade_archivematica_group }}"
+  when: _archivematica_upgrade_handoff_mode == 'portable'
 
 - name: "Run cutover-after-install hooks for active migrations"
   ansible.builtin.include_tasks: "common/run-migration-hooks.yml"

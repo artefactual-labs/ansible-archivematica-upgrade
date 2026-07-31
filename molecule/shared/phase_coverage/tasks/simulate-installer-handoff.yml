@@ -30,3 +30,16 @@
   ansible.builtin.service:
     name: "elasticsearch"
     state: "started"
+
+- name: "Create target Archivematica version fixtures"
+  ansible.builtin.copy:
+    content: "{{ item.content }}"
+    dest: "{{ item.path }}"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+  loop:
+    - path: "{{ _phase_coverage_am_version_file }}"
+      content: "ARCHIVEMATICA_VERSION = (1, 18, 0)\n"
+    - path: "{{ _phase_coverage_ss_version_file }}"
+      content: "__version__ = \"0.24.0\"\n"

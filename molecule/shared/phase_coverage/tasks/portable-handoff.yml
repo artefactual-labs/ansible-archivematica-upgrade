@@ -1,0 +1,595 @@
+---
+- name: "Set the server-migration plan fixture"
+  ansible.builtin.set_fact:
+    _phase_coverage_migration_plan:
+      schema_version: 1
+      migration_id: "phase-coverage"
+      source:
+        storage:
+          holdings:
+            filesystem_uuids:
+              - "phase-coverage-filesystem"
+            mounts:
+              - "{{ _phase_coverage_fixture_root }}"
+      storage:
+        holdings:
+          action: "reuse"
+          target:
+            mount: "{{ _phase_coverage_fixture_root }}"
+        processing:
+          action: "create"
+          target:
+            mount: "{{ _phase_coverage_fixture_root }}/processing"
+
+- name: "Write the server-migration plan fixture"
+  ansible.builtin.copy:
+    content: "{{ _phase_coverage_migration_plan | to_nice_json }}\n"
+    dest: "{{ _phase_coverage_fixture_root }}/migration-plan.json"
+    mode: "0600"
+
+- name: "Set portable handoff fixture values"
+  ansible.builtin.set_fact:
+    _phase_coverage_portable_vars:
+      archivematica_upgrade_handoff_mode: "portable"
+      archivematica_upgrade_migration_plan_file: "{{ _phase_coverage_fixture_root }}/migration-plan.json"
+      archivematica_upgrade_portable_root: "{{ _phase_coverage_fixture_root }}/portable-root"
+      archivematica_upgrade_portable_source_host: "{{ inventory_hostname }}"
+      archivematica_upgrade_portable_plan_digest: >-
+        {{ _phase_coverage_migration_plan | to_json(sort_keys=True) | hash('sha256') }}
+      archivematica_upgrade_target_version: "1.18.0"
+      archivematica_upgrade_target_storage_service_version: "0.24.0"
+
+- name: "Verify portable mode rejects a plan that misses the digest"
+  block:
+    - name: "Run portable readiness with a mismatched plan digest"
+      ansible.builtin.include_role:
+        name: "{{ _phase_coverage_role_path }}"
+        tasks_from: "main.yml"
+      vars:
+        archivematica_upgrade_handoff_mode: "portable"
+        archivematica_upgrade_phase: "check-readiness"
+        archivematica_upgrade_migration_plan_file: "{{ _phase_coverage_portable_vars.archivematica_upgrade_migration_plan_file }}"
+        archivematica_upgrade_portable_root: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_root }}"
+        archivematica_upgrade_portable_source_host: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_source_host }}"
+        archivematica_upgrade_portable_plan_digest: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        archivematica_upgrade_target_version: "{{ _phase_coverage_portable_vars.archivematica_upgrade_target_version }}"
+        archivematica_upgrade_target_storage_service_version: "{{ _phase_coverage_portable_vars.archivematica_upgrade_target_storage_service_version }}"
+
+    - name: "Fail when portable mode accepts a mismatched plan digest"
+      ansible.builtin.fail:
+        msg: "portable mode accepted a mismatched server-migration plan"
+  rescue:
+    - name: "Require portable plan digest failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - >-
+            'refusing to derive' in
+            (ansible_failed_result.msg | default(''))
+
+- name: "Verify portable mode rejects same-host cutover"
+  block:
+    - name: "Run forbidden portable cutover-before-install"
+      ansible.builtin.include_role:
+        name: "{{ _phase_coverage_role_path }}"
+        tasks_from: "main.yml"
+      vars:
+        archivematica_upgrade_handoff_mode: "portable"
+        archivematica_upgrade_phase: "cutover-before-install"
+        archivematica_upgrade_portable_root: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_root }}"
+        archivematica_upgrade_portable_source_host: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_source_host }}"
+        archivematica_upgrade_migration_plan_file: "{{ _phase_coverage_portable_vars.archivematica_upgrade_migration_plan_file }}"
+        archivematica_upgrade_portable_plan_digest: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_plan_digest }}"
+        archivematica_upgrade_target_version: "{{ _phase_coverage_portable_vars.archivematica_upgrade_target_version }}"
+        archivematica_upgrade_target_storage_service_version: "{{ _phase_coverage_portable_vars.archivematica_upgrade_target_storage_service_version }}"
+
+    - name: "Fail when portable mode accepts same-host cutover"
+      ansible.builtin.fail:
+        msg: "portable mode accepted cutover-before-install"
+  rescue:
+    - name: "Require portable phase guardrail failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'does not support phase' in (ansible_failed_result.msg | default(''))"
+
+- name: "Verify portable context rejects a different requested target"
+  block:
+    - name: "Load portable context with an unsupported target"
+      ansible.builtin.include_role:
+        name: "{{ _phase_coverage_role_path }}"
+        tasks_from: "common/load-context.yml"
+      vars:
+        archivematica_upgrade_handoff_mode: "portable"
+        archivematica_upgrade_phase: "check-readiness"
+        archivematica_upgrade_portable_root: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_root }}"
+        archivematica_upgrade_portable_source_host: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_source_host }}"
+        archivematica_upgrade_migration_plan_file: "{{ _phase_coverage_portable_vars.archivematica_upgrade_migration_plan_file }}"
+        archivematica_upgrade_portable_plan_digest: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_plan_digest }}"
+        archivematica_upgrade_target_version: "1.18.1"
+        archivematica_upgrade_target_storage_service_version: "{{ _phase_coverage_portable_vars.archivematica_upgrade_target_storage_service_version }}"
+
+    - name: "Fail when portable context accepts an unsupported target"
+      ansible.builtin.fail:
+        msg: "portable mode accepted an unsupported target release"
+  rescue:
+    - name: "Require portable target upgrade path metadata failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'exact target' in (ansible_failed_result.msg | default(''))"
+
+- name: "Run portable source readiness"
+  ansible.builtin.include_tasks: "run-role-phase.yml"
+  vars:
+    _phase_coverage_phase: "check-readiness"
+    archivematica_upgrade_handoff_mode: "portable"
+    archivematica_upgrade_portable_root: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_root }}"
+    archivematica_upgrade_portable_source_host: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_source_host }}"
+    archivematica_upgrade_migration_plan_file: "{{ _phase_coverage_portable_vars.archivematica_upgrade_migration_plan_file }}"
+    archivematica_upgrade_portable_plan_digest: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_plan_digest }}"
+    archivematica_upgrade_target_version: "{{ _phase_coverage_portable_vars.archivematica_upgrade_target_version }}"
+    archivematica_upgrade_target_storage_service_version: "{{ _phase_coverage_portable_vars.archivematica_upgrade_target_storage_service_version }}"
+
+- name: "Require selected portable source upgrade path metadata"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_handoff_mode == 'portable'
+      - _archivematica_upgrade_execution_side == 'source'
+      - _archivematica_upgrade_installed_am_version == '1.17.0'
+      - _archivematica_upgrade_installed_ss_version == '0.23.0'
+      - _archivematica_upgrade_requested_target_version == '1.18.0'
+      - _archivematica_upgrade_requested_target_ss_version == '0.24.0'
+
+- name: "Run portable source preparation"
+  ansible.builtin.include_tasks: "run-role-phase.yml"
+  vars:
+    _phase_coverage_phase: "prepare"
+    archivematica_upgrade_handoff_mode: "portable"
+    archivematica_upgrade_portable_root: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_root }}"
+    archivematica_upgrade_portable_source_host: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_source_host }}"
+    archivematica_upgrade_migration_plan_file: "{{ _phase_coverage_portable_vars.archivematica_upgrade_migration_plan_file }}"
+    archivematica_upgrade_portable_plan_digest: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_plan_digest }}"
+    archivematica_upgrade_target_version: "{{ _phase_coverage_portable_vars.archivematica_upgrade_target_version }}"
+    archivematica_upgrade_target_storage_service_version: "{{ _phase_coverage_portable_vars.archivematica_upgrade_target_storage_service_version }}"
+
+- name: "Inspect portable source handoff files"
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    checksum_algorithm: "sha256"
+  loop:
+    - "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_root }}/{{ archivematica_upgrade_id }}/portable-manifest.json"
+    - "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_root }}/{{ archivematica_upgrade_id }}/checkpoints/portable-source-prepared"
+  register: "_phase_coverage_portable_source_files"
+
+- name: "Require portable source handoff files"
+  ansible.builtin.assert:
+    that:
+      - _phase_coverage_portable_source_files.results | map(attribute='stat.isreg') | min
+
+- name: "Read portable source manifest"
+  ansible.builtin.slurp:
+    src: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_root }}/{{ archivematica_upgrade_id }}/portable-manifest.json"
+  register: "_phase_coverage_portable_manifest_content"
+
+- name: "Load portable source manifest"
+  ansible.builtin.set_fact:
+    _phase_coverage_portable_manifest: >-
+      {{ _phase_coverage_portable_manifest_content.content | b64decode | from_json }}
+    _phase_coverage_portable_manifest_sha256: >-
+      {{ _phase_coverage_portable_source_files.results[0].stat.checksum }}
+
+- name: "Require portable source manifest identity and artifacts"
+  ansible.builtin.assert:
+    that:
+      - _phase_coverage_portable_manifest.schema == 1
+      - _phase_coverage_portable_manifest.upgrade_id == archivematica_upgrade_id
+      - _phase_coverage_portable_manifest.upgrade_path == '1.17-to-1.18'
+      - _phase_coverage_portable_manifest.handoff_mode == 'portable'
+      - _phase_coverage_portable_manifest.source_host == inventory_hostname
+      - _phase_coverage_portable_manifest.source.archivematica_version == '1.17.0'
+      - _phase_coverage_portable_manifest.source.storage_service_version == '0.23.0'
+      - _phase_coverage_portable_manifest.target.archivematica_version == '1.18.0'
+      - _phase_coverage_portable_manifest.target.storage_service_version == '0.24.0'
+      - _phase_coverage_portable_manifest.filesystem_uuid == 'phase-coverage-filesystem'
+      - _phase_coverage_portable_manifest.plan_digest == _phase_coverage_portable_vars.archivematica_upgrade_portable_plan_digest
+      - "'backups/MCP.sql.gz' in _phase_coverage_portable_manifest.artifacts"
+      - "'backups/SS.sql.gz' in _phase_coverage_portable_manifest.artifacts"
+      - "'backups/elasticsearch-data-before-upgrade.tgz' in _phase_coverage_portable_manifest.artifacts"
+      - "'backups/processing-configs-before-upgrade.tgz' in _phase_coverage_portable_manifest.artifacts"
+      - "'state/before-upgrade-aip-storage-stats.json' in _phase_coverage_portable_manifest.artifacts"
+      - "'state/before-upgrade-application-state.json' in _phase_coverage_portable_manifest.artifacts"
+      - "'state/migrations/elasticsearch-6-to-8/before-upgrade-es-version' in _phase_coverage_portable_manifest.artifacts"
+      - "'state/migrations/elasticsearch-6-to-8/before-upgrade-index-counts.json' in _phase_coverage_portable_manifest.artifacts"
+
+- name: "List portable Elasticsearch data archive"
+  ansible.builtin.command:
+    argv:
+      - "tar"
+      - "--list"
+      - "--gzip"
+      - "--file"
+      - "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_root }}/{{ archivematica_upgrade_id }}/backups/elasticsearch-data-before-upgrade.tgz"
+  register: "_phase_coverage_portable_es_archive"
+  changed_when: false
+
+- name: "Require relocatable portable Elasticsearch data archive"
+  ansible.builtin.assert:
+    that:
+      - "'./nodes' in _phase_coverage_portable_es_archive.stdout_lines"
+      - >-
+        _phase_coverage_portable_es_archive.stdout_lines |
+        select('match', '^/') |
+        list |
+        length == 0
+
+- name: "Verify portable import rejects an unrecorded manifest checksum"
+  block:
+    - name: "Run portable target import with the wrong checksum"
+      ansible.builtin.include_tasks: "run-role-phase.yml"
+      vars:
+        _phase_coverage_phase: "import-before-install"
+        archivematica_upgrade_handoff_mode: "portable"
+        archivematica_upgrade_portable_root: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_root }}"
+        archivematica_upgrade_portable_source_host: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_source_host }}"
+        archivematica_upgrade_migration_plan_file: "{{ _phase_coverage_portable_vars.archivematica_upgrade_migration_plan_file }}"
+        archivematica_upgrade_portable_plan_digest: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_plan_digest }}"
+        archivematica_upgrade_portable_manifest_sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        archivematica_upgrade_portable_import_confirmed: true
+        archivematica_upgrade_portable_target_inputs_blocked_confirmed: true
+        archivematica_upgrade_target_version: "{{ _phase_coverage_portable_vars.archivematica_upgrade_target_version }}"
+        archivematica_upgrade_target_storage_service_version: "{{ _phase_coverage_portable_vars.archivematica_upgrade_target_storage_service_version }}"
+
+    - name: "Fail when portable import accepts the wrong checksum"
+      ansible.builtin.fail:
+        msg: "portable import accepted an unrecorded manifest checksum"
+  rescue:
+    - name: "Require portable manifest checksum failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'does not match the SHA-256' in (ansible_failed_result.msg | default(''))"
+
+- name: "Simulate writer services from an empty target bootstrap"
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: "started"
+  loop: "{{ archivematica_upgrade_application_services }}"
+
+- name: "Run portable target import"
+  ansible.builtin.include_tasks: "run-role-phase.yml"
+  vars:
+    _phase_coverage_phase: "import-before-install"
+    archivematica_upgrade_handoff_mode: "portable"
+    archivematica_upgrade_portable_root: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_root }}"
+    archivematica_upgrade_portable_source_host: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_source_host }}"
+    archivematica_upgrade_migration_plan_file: "{{ _phase_coverage_portable_vars.archivematica_upgrade_migration_plan_file }}"
+    archivematica_upgrade_portable_plan_digest: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_plan_digest }}"
+    archivematica_upgrade_portable_manifest_sha256: "{{ _phase_coverage_portable_manifest_sha256 }}"
+    archivematica_upgrade_portable_import_confirmed: true
+    archivematica_upgrade_portable_target_inputs_blocked_confirmed: true
+    archivematica_upgrade_target_version: "{{ _phase_coverage_portable_vars.archivematica_upgrade_target_version }}"
+    archivematica_upgrade_target_storage_service_version: "{{ _phase_coverage_portable_vars.archivematica_upgrade_target_storage_service_version }}"
+
+- name: "Read portable MySQL imports"
+  ansible.builtin.slurp:
+    src: "{{ _phase_coverage_fixture_root }}/mysql-imports"
+  register: "_phase_coverage_portable_mysql_imports_content"
+
+- name: "Inspect portable target import checkpoint"
+  ansible.builtin.stat:
+    path: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_root }}/{{ archivematica_upgrade_id }}/checkpoints/portable-imported"
+  register: "_phase_coverage_portable_import_checkpoint"
+
+- name: "Require portable target database imports"
+  ansible.builtin.assert:
+    that:
+      - _phase_coverage_portable_import_checkpoint.stat.isreg
+      - >-
+        (
+          _phase_coverage_portable_mysql_imports_content.content |
+          b64decode
+        ).split('\n') |
+        select('match', '(^|.* )MCP$') |
+        list |
+        length == 1
+      - >-
+        (
+          _phase_coverage_portable_mysql_imports_content.content |
+          b64decode
+        ).split('\n') |
+        select('match', '(^|.* )SS$') |
+        list |
+        length == 1
+
+- name: "Repeat portable target import"
+  ansible.builtin.include_tasks: "run-role-phase.yml"
+  vars:
+    _phase_coverage_phase: "import-before-install"
+    archivematica_upgrade_handoff_mode: "portable"
+    archivematica_upgrade_portable_root: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_root }}"
+    archivematica_upgrade_portable_source_host: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_source_host }}"
+    archivematica_upgrade_migration_plan_file: "{{ _phase_coverage_portable_vars.archivematica_upgrade_migration_plan_file }}"
+    archivematica_upgrade_portable_plan_digest: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_plan_digest }}"
+    archivematica_upgrade_portable_manifest_sha256: "{{ _phase_coverage_portable_manifest_sha256 }}"
+    archivematica_upgrade_portable_import_confirmed: true
+    archivematica_upgrade_portable_target_inputs_blocked_confirmed: true
+    archivematica_upgrade_target_version: "{{ _phase_coverage_portable_vars.archivematica_upgrade_target_version }}"
+    archivematica_upgrade_target_storage_service_version: "{{ _phase_coverage_portable_vars.archivematica_upgrade_target_storage_service_version }}"
+
+- name: "Read repeated portable MySQL imports"
+  ansible.builtin.slurp:
+    src: "{{ _phase_coverage_fixture_root }}/mysql-imports"
+  register: "_phase_coverage_repeated_portable_mysql_imports_content"
+
+- name: "Require idempotent portable target import"
+  ansible.builtin.assert:
+    that:
+      - >-
+        _phase_coverage_repeated_portable_mysql_imports_content.content ==
+        _phase_coverage_portable_mysql_imports_content.content
+
+- name: "Remove source-local Elasticsearch directories after handoff"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: "absent"
+  loop:
+    - "{{ archivematica_upgrade_es_data_dir }}"
+    - "{{ archivematica_upgrade_es_data_dir }}-before-upgrade"
+
+- name: "Replace source processing configuration with target installer fixture"
+  block:
+    - name: "Remove source processing configuration fixture"
+      ansible.builtin.file:
+        path: "{{ archivematica_upgrade_processing_config_dir }}"
+        state: "absent"
+
+    - name: "Create target processing configuration fixture"
+      ansible.builtin.file:
+        path: "{{ archivematica_upgrade_processing_config_dir }}"
+        state: "directory"
+        owner: "archivematica"
+        group: "archivematica"
+        mode: "0750"
+
+    - name: "Create target-only processing configuration"
+      ansible.builtin.copy:
+        content: "target installer fixture\n"
+        dest: "{{ archivematica_upgrade_processing_config_dir }}/target-only.xml"
+        owner: "archivematica"
+        group: "archivematica"
+        mode: "0640"
+
+- name: "Verify portable cutover rejects source application versions"
+  block:
+    - name: "Run portable cutover before the target installer"
+      ansible.builtin.include_tasks: "run-role-phase.yml"
+      vars:
+        _phase_coverage_phase: "cutover-after-install"
+        archivematica_upgrade_handoff_mode: "portable"
+        archivematica_upgrade_portable_root: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_root }}"
+        archivematica_upgrade_portable_source_host: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_source_host }}"
+        archivematica_upgrade_migration_plan_file: "{{ _phase_coverage_portable_vars.archivematica_upgrade_migration_plan_file }}"
+        archivematica_upgrade_portable_plan_digest: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_plan_digest }}"
+        archivematica_upgrade_portable_manifest_sha256: "{{ _phase_coverage_portable_manifest_sha256 }}"
+        archivematica_upgrade_portable_target_inputs_blocked_confirmed: true
+        archivematica_upgrade_target_version: "{{ _phase_coverage_portable_vars.archivematica_upgrade_target_version }}"
+        archivematica_upgrade_target_storage_service_version: "{{ _phase_coverage_portable_vars.archivematica_upgrade_target_storage_service_version }}"
+
+    - name: "Fail when portable cutover accepts source application versions"
+      ansible.builtin.fail:
+        msg: "portable cutover accepted source application versions"
+  rescue:
+    - name: "Require portable target version failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'exact Archivematica' in (ansible_failed_result.msg | default(''))"
+
+- name: "Simulate portable target installer handoff"
+  ansible.builtin.include_tasks: "simulate-installer-handoff.yml"
+
+- name: "Simulate target application services started by the installer"
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: "started"
+  loop: "{{ archivematica_upgrade_application_services }}"
+
+- name: "Run portable cutover after target installation"
+  ansible.builtin.include_tasks: "run-role-phase.yml"
+  vars:
+    _phase_coverage_phase: "cutover-after-install"
+    archivematica_upgrade_handoff_mode: "portable"
+    archivematica_upgrade_portable_root: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_root }}"
+    archivematica_upgrade_portable_source_host: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_source_host }}"
+    archivematica_upgrade_migration_plan_file: "{{ _phase_coverage_portable_vars.archivematica_upgrade_migration_plan_file }}"
+    archivematica_upgrade_portable_plan_digest: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_plan_digest }}"
+    archivematica_upgrade_portable_manifest_sha256: "{{ _phase_coverage_portable_manifest_sha256 }}"
+    archivematica_upgrade_portable_target_inputs_blocked_confirmed: true
+    archivematica_upgrade_target_version: "{{ _phase_coverage_portable_vars.archivematica_upgrade_target_version }}"
+    archivematica_upgrade_target_storage_service_version: "{{ _phase_coverage_portable_vars.archivematica_upgrade_target_storage_service_version }}"
+
+- name: "Inspect restored portable processing configuration"
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ archivematica_upgrade_processing_config_dir }}/defaultProcessingMCP.xml"
+    - "{{ archivematica_upgrade_processing_config_dir }}/target-only.xml"
+  register: "_phase_coverage_portable_processing_configs"
+
+- name: "Require source processing configuration on the target"
+  ansible.builtin.assert:
+    that:
+      - _phase_coverage_portable_processing_configs.results[0].stat.isreg
+      - not _phase_coverage_portable_processing_configs.results[1].stat.exists
+
+- name: "Prepare storage relocation fixtures"
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: "{{ item.state }}"
+    mode: "0755"
+  loop:
+    - path: "{{ _phase_coverage_fixture_root }}/legacy-tree/sharedDirectory"
+      state: "directory"
+    - path: "{{ _phase_coverage_fixture_root }}/pointer-files"
+      state: "directory"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: "Write storage relocation fixture files"
+  ansible.builtin.copy:
+    content: "{{ item.content }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  loop:
+    - content: "relocated-data\n"
+      dest: "{{ _phase_coverage_fixture_root }}/legacy-tree/sharedDirectory/data.txt"
+    - content: "<pointer>mnt/phase-new/aipstore</pointer>\n"
+      dest: "{{ _phase_coverage_fixture_root }}/pointer-files/pointer.xml"
+    - content: "PHASE_COVERAGE_SS=1\n"
+      dest: "{{ _phase_coverage_fixture_root }}/ss-environment"
+    - content: |
+        #!/bin/sh
+        printf '%s ' 'Reconciliation complete. Processed 2 pointer files:'
+        printf '%s\n' '2 changed, 0 already matched, 0 skipped.'
+      dest: "{{ _phase_coverage_fixture_root }}/fake-ss-manage"
+    - content: ""
+      dest: "{{ _phase_coverage_fixture_root }}/rewrites-pending"
+
+- name: "Mark the fake Storage Service manage command executable"
+  ansible.builtin.file:
+    path: "{{ _phase_coverage_fixture_root }}/fake-ss-manage"
+    mode: "0755"
+
+- name: "Run portable storage relocation"
+  ansible.builtin.include_tasks: "run-role-phase.yml"
+  vars:
+    _phase_coverage_phase: "relocate-storage"
+    archivematica_upgrade_handoff_mode: "portable"
+    archivematica_upgrade_portable_root: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_root }}"
+    archivematica_upgrade_portable_source_host: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_source_host }}"
+    archivematica_upgrade_migration_plan_file: "{{ _phase_coverage_portable_vars.archivematica_upgrade_migration_plan_file }}"
+    archivematica_upgrade_portable_plan_digest: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_plan_digest }}"
+    archivematica_upgrade_portable_manifest_sha256: "{{ _phase_coverage_portable_manifest_sha256 }}"
+    archivematica_upgrade_portable_target_inputs_blocked_confirmed: true
+    archivematica_upgrade_target_version: "{{ _phase_coverage_portable_vars.archivematica_upgrade_target_version }}"
+    archivematica_upgrade_target_storage_service_version: "{{ _phase_coverage_portable_vars.archivematica_upgrade_target_storage_service_version }}"
+    archivematica_upgrade_storage_relocations:
+      - src: "{{ _phase_coverage_fixture_root }}/legacy-tree/sharedDirectory"
+        dest: "{{ _phase_coverage_fixture_root }}/new-tree/sharedDirectory"
+    archivematica_upgrade_symlink_updates:
+      - path: "{{ _phase_coverage_fixture_root }}/var-sharedDirectory"
+        target: "{{ _phase_coverage_fixture_root }}/new-tree/sharedDirectory"
+    archivematica_upgrade_location_path_rewrites:
+      - old: "/mnt/phase-legacy"
+        new: "/mnt/phase-new"
+    archivematica_upgrade_pointer_file_dir: "{{ _phase_coverage_fixture_root }}/pointer-files"
+    archivematica_upgrade_reconcile_command_install_path: "{{ _phase_coverage_fixture_root }}/reconcile-install/reconcile-command-installed.py"
+    archivematica_upgrade_ss_environment_file: "{{ _phase_coverage_fixture_root }}/ss-environment"
+    archivematica_upgrade_ss_manage_command:
+      - "{{ _phase_coverage_fixture_root }}/fake-ss-manage"
+
+- name: "Inspect relocated storage results"
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ _phase_coverage_fixture_root }}/new-tree/sharedDirectory/data.txt"
+    - "{{ _phase_coverage_fixture_root }}/var-sharedDirectory"
+    - "{{ _phase_coverage_fixture_root }}/reconcile-install/reconcile-command-installed.py"
+    - "{{ _phase_coverage_fixture_root }}/rewrites-applied"
+  register: "_phase_coverage_relocation_results"
+
+- name: "Require relocated storage results"
+  ansible.builtin.assert:
+    that:
+      - _phase_coverage_relocation_results.results[0].stat.isreg
+      - _phase_coverage_relocation_results.results[1].stat.islnk
+      - _phase_coverage_relocation_results.results[2].stat.isreg
+      - _phase_coverage_relocation_results.results[3].stat.isreg
+
+- name: "Read applied location rewrites"
+  ansible.builtin.slurp:
+    src: "{{ _phase_coverage_fixture_root }}/rewrites-applied"
+  register: "_phase_coverage_rewrites_applied"
+
+- name: "Require the declared location rewrite SQL"
+  ansible.builtin.assert:
+    that:
+      - >-
+        'UPDATE locations_location' in
+        (_phase_coverage_rewrites_applied.content | b64decode)
+      - >-
+        'mnt/phase-new' in
+        (_phase_coverage_rewrites_applied.content | b64decode)
+
+- name: "Inspect the relocated checkpoint"
+  ansible.builtin.stat:
+    path: >-
+      {{ _phase_coverage_portable_vars.archivematica_upgrade_portable_root
+      }}/{{ archivematica_upgrade_id }}/checkpoints/relocated
+  register: "_phase_coverage_relocated_checkpoint"
+
+- name: "Require the relocated checkpoint"
+  ansible.builtin.assert:
+    that:
+      - _phase_coverage_relocated_checkpoint.stat.isreg
+
+- name: "Run portable Elasticsearch migration"
+  ansible.builtin.include_tasks: "run-role-phase.yml"
+  vars:
+    _phase_coverage_phase: "migrate"
+    archivematica_upgrade_handoff_mode: "portable"
+    archivematica_upgrade_portable_root: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_root }}"
+    archivematica_upgrade_portable_source_host: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_source_host }}"
+    archivematica_upgrade_migration_plan_file: "{{ _phase_coverage_portable_vars.archivematica_upgrade_migration_plan_file }}"
+    archivematica_upgrade_portable_plan_digest: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_plan_digest }}"
+    archivematica_upgrade_portable_manifest_sha256: "{{ _phase_coverage_portable_manifest_sha256 }}"
+    archivematica_upgrade_portable_target_inputs_blocked_confirmed: true
+    archivematica_upgrade_target_version: "{{ _phase_coverage_portable_vars.archivematica_upgrade_target_version }}"
+    archivematica_upgrade_target_storage_service_version: "{{ _phase_coverage_portable_vars.archivematica_upgrade_target_storage_service_version }}"
+
+- name: "Inspect portable Elasticsearch source data paths"
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_root }}/{{ archivematica_upgrade_id }}/elasticsearch-{{ _phase_coverage_es6_version }}/data/nodes"
+    - "{{ archivematica_upgrade_es_data_dir }}-before-upgrade"
+  register: "_phase_coverage_portable_es_data_paths"
+
+- name: "Require archived Elasticsearch data instead of a preserved source directory"
+  ansible.builtin.assert:
+    that:
+      - _phase_coverage_portable_es_data_paths.results[0].stat.isreg
+      - not _phase_coverage_portable_es_data_paths.results[1].stat.exists
+
+- name: "Run portable validation"
+  ansible.builtin.include_tasks: "run-role-phase.yml"
+  vars:
+    _phase_coverage_phase: "validate"
+    archivematica_upgrade_location_path_rewrites:
+      - old: "/mnt/phase-legacy"
+        new: "/mnt/phase-new"
+    archivematica_upgrade_handoff_mode: "portable"
+    archivematica_upgrade_portable_root: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_root }}"
+    archivematica_upgrade_portable_source_host: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_source_host }}"
+    archivematica_upgrade_migration_plan_file: "{{ _phase_coverage_portable_vars.archivematica_upgrade_migration_plan_file }}"
+    archivematica_upgrade_portable_plan_digest: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_plan_digest }}"
+    archivematica_upgrade_portable_manifest_sha256: "{{ _phase_coverage_portable_manifest_sha256 }}"
+    archivematica_upgrade_portable_target_inputs_blocked_confirmed: true
+    archivematica_upgrade_target_version: "{{ _phase_coverage_portable_vars.archivematica_upgrade_target_version }}"
+    archivematica_upgrade_target_storage_service_version: "{{ _phase_coverage_portable_vars.archivematica_upgrade_target_storage_service_version }}"
+
+- name: "Run portable cleanup retaining rollback data"
+  ansible.builtin.include_tasks: "run-role-phase.yml"
+  vars:
+    _phase_coverage_phase: "cleanup"
+    archivematica_upgrade_handoff_mode: "portable"
+    archivematica_upgrade_portable_root: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_root }}"
+    archivematica_upgrade_portable_source_host: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_source_host }}"
+    archivematica_upgrade_migration_plan_file: "{{ _phase_coverage_portable_vars.archivematica_upgrade_migration_plan_file }}"
+    archivematica_upgrade_portable_plan_digest: "{{ _phase_coverage_portable_vars.archivematica_upgrade_portable_plan_digest }}"
+    archivematica_upgrade_portable_manifest_sha256: "{{ _phase_coverage_portable_manifest_sha256 }}"
+    archivematica_upgrade_portable_target_inputs_blocked_confirmed: true
+    archivematica_upgrade_target_version: "{{ _phase_coverage_portable_vars.archivematica_upgrade_target_version }}"
+    archivematica_upgrade_target_storage_service_version: "{{ _phase_coverage_portable_vars.archivematica_upgrade_target_storage_service_version }}"
+    archivematica_upgrade_remove_rollback_data_confirmed: false

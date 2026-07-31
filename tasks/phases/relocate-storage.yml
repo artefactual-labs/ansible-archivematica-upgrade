@@ -1,0 +1,242 @@
+---
+- name: "Load common Archivematica upgrade values"
+  ansible.builtin.include_tasks: "common/load-context.yml"
+
+- name: "Load prepared Archivematica upgrade state"
+  ansible.builtin.include_tasks: "common/load-state.yml"
+
+- name: "Require completed cutover before relocation"
+  ansible.builtin.stat:
+    path: "{{ _archivematica_upgrade_checkpoint_dir }}/cutover"
+  register: "_archivematica_upgrade_relocation_cutover_checkpoint"
+
+- name: "Fail when cutover is incomplete before relocation"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_relocation_cutover_checkpoint.stat.exists
+    fail_msg: "Run the cutover phase successfully before relocating storage."
+
+- name: "Require declared relocation work"
+  ansible.builtin.assert:
+    that:
+      - >-
+        (archivematica_upgrade_storage_relocations | length) +
+        (archivematica_upgrade_symlink_updates | length) +
+        (archivematica_upgrade_location_path_rewrites | length) > 0
+    fail_msg: >-
+      relocate-storage requires declared storage relocations, symlink
+      updates, or location path rewrites; nothing is inferred.
+
+- name: "Validate declared relocation inputs"
+  ansible.builtin.assert:
+    that:
+      - >-
+        archivematica_upgrade_storage_relocations |
+        rejectattr('src', 'match', '^/[A-Za-z0-9._/-]+$') |
+        list | length == 0
+      - >-
+        archivematica_upgrade_storage_relocations |
+        rejectattr('dest', 'match', '^/[A-Za-z0-9._/-]+$') |
+        list | length == 0
+      - >-
+        archivematica_upgrade_symlink_updates |
+        rejectattr('path', 'match', '^/[A-Za-z0-9._/-]+$') |
+        list | length == 0
+      - >-
+        archivematica_upgrade_symlink_updates |
+        rejectattr('target', 'match', '^/[A-Za-z0-9._/-]+$') |
+        list | length == 0
+      - >-
+        archivematica_upgrade_location_path_rewrites |
+        rejectattr('old', 'match', '^/[A-Za-z0-9._/-]+$') |
+        list | length == 0
+      - >-
+        archivematica_upgrade_location_path_rewrites |
+        rejectattr('new', 'match', '^/[A-Za-z0-9._/-]+$') |
+        list | length == 0
+      - >-
+        (
+          archivematica_upgrade_storage_relocations +
+          archivematica_upgrade_symlink_updates +
+          archivematica_upgrade_location_path_rewrites
+        ) |
+        map('dict2items') | flatten | map(attribute='value') |
+        select('search', "[.][.]|[;'\\\"]") |
+        list | length == 0
+    fail_msg: >-
+      Declared relocations, symlink updates, and location path rewrites
+      must use safe absolute paths.
+
+- name: "Stop Archivematica application services during relocation"
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: "stopped"
+  loop: "{{ _archivematica_upgrade_application_services }}"
+
+- name: "Inspect declared relocation sources"
+  ansible.builtin.stat:
+    path: "{{ item.src }}"
+  loop: "{{ archivematica_upgrade_storage_relocations }}"
+  loop_control:
+    label: "{{ item.src }}"
+  register: "_archivematica_upgrade_relocation_sources"
+
+- name: "Create declared relocation destinations"
+  ansible.builtin.file:
+    path: "{{ item.item.dest }}"
+    state: "directory"
+    owner: "{{ _archivematica_upgrade_archivematica_user }}"
+    group: "{{ _archivematica_upgrade_archivematica_group }}"
+    mode: "0755"
+  loop: "{{ _archivematica_upgrade_relocation_sources.results }}"
+  loop_control:
+    label: "{{ item.item.dest }}"
+  when: item.stat.exists
+
+- name: "Copy relocated storage trees"
+  ansible.builtin.command:
+    argv:
+      - "cp"
+      - "--archive"
+      - "{{ item.item.src }}/."
+      - "{{ item.item.dest }}"
+  loop: "{{ _archivematica_upgrade_relocation_sources.results }}"
+  loop_control:
+    label: "{{ item.item.dest }}"
+  when: item.stat.exists
+  changed_when: true
+
+- name: "Update declared symlinks"
+  ansible.builtin.file:
+    src: "{{ item.target }}"
+    dest: "{{ item.path }}"
+    state: "link"
+    force: true
+    follow: false
+  loop: "{{ archivematica_upgrade_symlink_updates }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: "Count locations matching declared path rewrites"
+  ansible.builtin.command:
+    argv: >-
+      {{
+        ['mysql'] +
+        _archivematica_upgrade_mysql_client_args +
+        [
+          '--batch',
+          '--skip-column-names',
+          archivematica_src_ss_db_name,
+          '--execute',
+          "SELECT COUNT(*) FROM locations_location WHERE relative_path LIKE '"
+          ~ (item.old | regex_replace('^/', '')) ~ "/%' OR relative_path = '"
+          ~ (item.old | regex_replace('^/', '')) ~ "';"
+        ]
+      }}
+  loop: "{{ archivematica_upgrade_location_path_rewrites }}"
+  loop_control:
+    label: "{{ item.old }}"
+  changed_when: false
+  register: "_archivematica_upgrade_rewrite_counts"
+
+- name: "Rewrite declared location paths"
+  ansible.builtin.command:
+    argv: >-
+      {{
+        ['mysql'] +
+        _archivematica_upgrade_mysql_client_args +
+        [
+          archivematica_src_ss_db_name,
+          '--execute',
+          "UPDATE locations_location SET relative_path = CONCAT('"
+          ~ (item.item.new | regex_replace('^/', ''))
+          ~ "/', SUBSTRING(relative_path, CHAR_LENGTH('"
+          ~ (item.item.old | regex_replace('^/', ''))
+          ~ "/') + 1)) WHERE relative_path LIKE '"
+          ~ (item.item.old | regex_replace('^/', ''))
+          ~ "/%'; UPDATE locations_location SET relative_path = '"
+          ~ (item.item.new | regex_replace('^/', ''))
+          ~ "' WHERE relative_path = '"
+          ~ (item.item.old | regex_replace('^/', '')) ~ "';"
+        ]
+      }}
+  loop: "{{ _archivematica_upgrade_rewrite_counts.results }}"
+  loop_control:
+    label: "{{ item.item.old }}"
+  when: (item.stdout | trim) | default('0', true) | int > 0
+  changed_when: true
+
+- name: "Create the pointer reconciliation command directory"
+  ansible.builtin.file:
+    path: "{{ archivematica_upgrade_reconcile_command_install_path | dirname }}"
+    state: "directory"
+    owner: "root"
+    group: "root"
+    mode: "0755"
+  when: archivematica_upgrade_reconcile_command_install_path | length > 0
+
+- name: "Install the vendored pointer reconciliation command"
+  ansible.builtin.copy:
+    src: "reconcile_pointer_file_locations.py"
+    dest: "{{ archivematica_upgrade_reconcile_command_install_path }}"
+    owner: "{{ _archivematica_upgrade_archivematica_user }}"
+    group: "{{ _archivematica_upgrade_archivematica_group }}"
+    mode: "0644"
+  when: archivematica_upgrade_reconcile_command_install_path | length > 0
+
+- name: "Reconcile pointer file locations"
+  ansible.builtin.shell:
+    cmd: >-
+      set -a &&
+      . {{ archivematica_upgrade_ss_environment_file | quote }} &&
+      exec {{ archivematica_upgrade_ss_manage_command | map('quote') | join(' ') }}
+      reconcile_pointer_file_locations
+    executable: "/bin/bash"
+  become: true
+  become_user: "{{ _archivematica_upgrade_archivematica_user }}"
+  when: archivematica_upgrade_reconcile_command_install_path | length > 0
+  changed_when: "' 0 changed' not in _archivematica_upgrade_reconcile.stdout"
+  register: "_archivematica_upgrade_reconcile"
+
+- name: "Require complete pointer reconciliation"
+  ansible.builtin.assert:
+    that:
+      - >-
+        _archivematica_upgrade_reconcile.stdout is
+        search('Processed [0-9]+ pointer files')
+      - "', 0 skipped' in _archivematica_upgrade_reconcile.stdout"
+    fail_msg: >-
+      Pointer reconciliation skipped files or produced no report; review
+      its output before continuing.
+  when: archivematica_upgrade_reconcile_command_install_path | length > 0
+
+- name: "Require no stale path references in pointer files"
+  ansible.builtin.command:
+    argv:
+      - "grep"
+      - "--recursive"
+      - "--files-with-matches"
+      - "{{ item.old }}"
+      - "{{ archivematica_upgrade_pointer_file_dir }}"
+  loop: "{{ archivematica_upgrade_location_path_rewrites }}"
+  loop_control:
+    label: "{{ item.old }}"
+  when: archivematica_upgrade_pointer_file_dir | length > 0
+  changed_when: false
+  register: "_archivematica_upgrade_pointer_residue"
+  failed_when: _archivematica_upgrade_pointer_residue.rc != 1
+
+- name: "Write relocated checkpoint"
+  ansible.builtin.copy:
+    content: "{{ archivematica_upgrade_portable_manifest_sha256 }}\n"
+    dest: "{{ _archivematica_upgrade_checkpoint_dir }}/relocated"
+    owner: "root"
+    group: "root"
+    mode: "0600"
+
+- name: "Report relocated storage"
+  ansible.builtin.debug:
+    msg:
+      relocations: "{{ archivematica_upgrade_storage_relocations }}"
+      rewrites: "{{ archivematica_upgrade_location_path_rewrites }}"
+      symlinks: "{{ archivematica_upgrade_symlink_updates }}"

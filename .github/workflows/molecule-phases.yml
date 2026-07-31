@@ -22,9 +22,33 @@ permissions:
   contents: read
 
 jobs:
+  discover_phase_scenarios:
+    name: Discover phase scenarios
+    runs-on: ubuntu-24.04
+    outputs:
+      scenarios: ${{ steps.phase_scenarios.outputs.scenarios }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Discover phase and migration scenarios
+        id: phase_scenarios
+        run: |
+          scenarios="$(
+            make --no-print-directory molecule-phase-scenarios |
+              jq --raw-input --slurp --compact-output \
+                'split("\n") | map(select(length > 0))'
+          )"
+          if [ "$scenarios" = "[]" ]; then
+            printf '%s\n' "No phase or migration Molecule scenarios were discovered." >&2
+            exit 1
+          fi
+          printf 'scenarios=%s\n' "$scenarios" >> "$GITHUB_OUTPUT"
+
   molecule-phase-scenario:
     name: Molecule phase (${{ matrix.platform.name }}, ${{ matrix.scenario }})
     runs-on: ubuntu-24.04
+    needs: discover_phase_scenarios
     strategy:
       fail-fast: false
       matrix:
@@ -35,17 +59,7 @@ jobs:
             make_target: "molecule-test-ubuntu2204"
           - name: "rockylinux9"
             make_target: "molecule-test-rockylinux9"
-        scenario:
-          - phase-lifecycle-mysql
-          - phase-lifecycle-sqlite
-          - phase-resume-checkpoints
-          - phase-restore-success
-          - phase-guardrails-negative
-          - elasticsearch-readiness-cutover-negative
-          - elasticsearch-runtime-negative
-          - elasticsearch-reindex-negative
-          - elasticsearch-restore-validate-cleanup-negative
-          - elasticsearch-search-total-cap
+        scenario: ${{ fromJSON(needs.discover_phase_scenarios.outputs.scenarios) }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

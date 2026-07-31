@@ -1,7 +1,19 @@
 ---
 _archivematica_upgrade_supported_paths:
   "1.17-to-1.18":
+    handoff_modes:
+      - "in_place"
+      - "portable"
+    source:
+      archivematica_version: "1.17.0"
+      archivematica_version_file: "archivematica/src/archivematicaCommon/lib/version.py"
+      storage_service_version: "0.23.0"
+      storage_service_version_file: "archivematica-storage-service/storage_service/storage_service/__init__.py"
     target:
+      archivematica_version: "1.18.0"
+      archivematica_version_file: "archivematica/src/archivematica/archivematicaCommon/version.py"
+      storage_service_version: "0.24.0"
+      storage_service_version_file: "archivematica-storage-service/src/archivematica/storage_service/storage_service/__init__.py"
       src_role_names:
         - "artefactual.archivematica-src"
         - "artefactual.archivematica-src-1.18"

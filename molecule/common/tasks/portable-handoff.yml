@@ -1,0 +1,273 @@
+---
+- name: "Set portable common fixture values"
+  ansible.builtin.set_fact:
+    _molecule_common_portable_vars:
+      archivematica_upgrade_handoff_mode: "portable"
+      archivematica_upgrade_phase: "check-readiness"
+      archivematica_upgrade_portable_filesystem_uuid: "{{ _molecule_common_portable_filesystem_uuid }}"
+      archivematica_upgrade_portable_plan_digest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      archivematica_upgrade_portable_root: "{{ _molecule_common_portable_root }}"
+      archivematica_upgrade_portable_source_host: "{{ inventory_hostname }}"
+      archivematica_upgrade_target_storage_service_version: "0.24.0"
+      archivematica_upgrade_target_version: "1.18.0"
+
+- name: "Run portable source common context"
+  ansible.builtin.include_role:
+    name: "{{ _molecule_common_role_path }}"
+    tasks_from: "common/load-context.yml"
+  vars:
+    archivematica_upgrade_handoff_mode: "{{ _molecule_common_portable_vars.archivematica_upgrade_handoff_mode }}"
+    archivematica_upgrade_phase: "{{ _molecule_common_portable_vars.archivematica_upgrade_phase }}"
+    archivematica_upgrade_portable_filesystem_uuid: "{{ _molecule_common_portable_vars.archivematica_upgrade_portable_filesystem_uuid }}"
+    archivematica_upgrade_portable_plan_digest: "{{ _molecule_common_portable_vars.archivematica_upgrade_portable_plan_digest }}"
+    archivematica_upgrade_portable_root: "{{ _molecule_common_portable_vars.archivematica_upgrade_portable_root }}"
+    archivematica_upgrade_portable_source_host: "{{ _molecule_common_portable_vars.archivematica_upgrade_portable_source_host }}"
+    archivematica_upgrade_target_storage_service_version: "{{ _molecule_common_portable_vars.archivematica_upgrade_target_storage_service_version }}"
+    archivematica_upgrade_target_version: "{{ _molecule_common_portable_vars.archivematica_upgrade_target_version }}"
+
+- name: "Run installed Archivematica version detection"
+  ansible.builtin.include_role:
+    name: "{{ _molecule_common_role_path }}"
+    tasks_from: "common/detect-installed-versions.yml"
+
+- name: "Require detected source Archivematica versions"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_installed_am_version == '1.17.0'
+      - _archivematica_upgrade_installed_ss_version == '0.23.0'
+
+- name: "Require portable source common context"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_execution_side == 'source'
+      - _archivematica_upgrade_path == _molecule_common_portable_root ~ '/' ~ archivematica_upgrade_id
+      - _archivematica_upgrade_requested_target_version == '1.18.0'
+      - _archivematica_upgrade_requested_target_ss_version == '0.24.0'
+
+- name: "Set the server-migration plan fixture"
+  ansible.builtin.set_fact:
+    _molecule_common_migration_plan:
+      schema_version: 1
+      migration_id: "{{ archivematica_upgrade_id }}"
+      source:
+        storage:
+          holdings:
+            filesystem_uuids:
+              - "{{ _molecule_common_portable_filesystem_uuid }}"
+            mounts:
+              - "{{ _molecule_common_fixture_root }}"
+      storage:
+        holdings:
+          action: "reuse"
+          target:
+            mount: "{{ _molecule_common_fixture_root }}"
+        processing:
+          action: "create"
+          target:
+            mount: "{{ _molecule_common_fixture_root }}/processing"
+
+- name: "Write the server-migration plan fixture"
+  ansible.builtin.copy:
+    content: "{{ _molecule_common_migration_plan | to_nice_json }}\n"
+    dest: "{{ _molecule_common_migration_plan_file }}"
+    owner: "root"
+    group: "root"
+    mode: "0600"
+
+- name: "Verify portable mode rejects a plan that misses the carried digest"
+  block:
+    - name: "Run portable source common context with a mismatched plan digest"
+      ansible.builtin.include_role:
+        name: "{{ _molecule_common_role_path }}"
+        tasks_from: "common/load-context.yml"
+      vars:
+        archivematica_upgrade_handoff_mode: "{{ _molecule_common_portable_vars.archivematica_upgrade_handoff_mode }}"
+        archivematica_upgrade_phase: "{{ _molecule_common_portable_vars.archivematica_upgrade_phase }}"
+        archivematica_upgrade_migration_plan_file: "{{ _molecule_common_migration_plan_file }}"
+        archivematica_upgrade_portable_plan_digest: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        archivematica_upgrade_portable_root: "{{ _molecule_common_portable_vars.archivematica_upgrade_portable_root }}"
+        archivematica_upgrade_portable_source_host: "{{ _molecule_common_portable_vars.archivematica_upgrade_portable_source_host }}"
+        archivematica_upgrade_target_storage_service_version: "{{ _molecule_common_portable_vars.archivematica_upgrade_target_storage_service_version }}"
+        archivematica_upgrade_target_version: "{{ _molecule_common_portable_vars.archivematica_upgrade_target_version }}"
+
+    - name: "Fail when a mismatched plan digest is accepted"
+      ansible.builtin.fail:
+        msg: "load-context accepted a server-migration plan that misses the carried digest."
+  rescue:
+    - name: "Require mismatched plan digest failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result is defined
+          - "'does not match the operator-carried' in (ansible_failed_result.msg | default(''))"
+
+- name: "Run portable source common context from the server-migration plan"
+  ansible.builtin.include_role:
+    name: "{{ _molecule_common_role_path }}"
+    tasks_from: "common/load-context.yml"
+  vars:
+    archivematica_upgrade_handoff_mode: "{{ _molecule_common_portable_vars.archivematica_upgrade_handoff_mode }}"
+    archivematica_upgrade_phase: "{{ _molecule_common_portable_vars.archivematica_upgrade_phase }}"
+    archivematica_upgrade_migration_plan_file: "{{ _molecule_common_migration_plan_file }}"
+    archivematica_upgrade_portable_plan_digest: >-
+      {{ _molecule_common_migration_plan | to_json(sort_keys=True) | hash('sha256') }}
+    archivematica_upgrade_portable_root: "{{ _molecule_common_portable_vars.archivematica_upgrade_portable_root }}"
+    archivematica_upgrade_portable_source_host: "{{ _molecule_common_portable_vars.archivematica_upgrade_portable_source_host }}"
+    archivematica_upgrade_target_storage_service_version: "{{ _molecule_common_portable_vars.archivematica_upgrade_target_storage_service_version }}"
+    archivematica_upgrade_target_version: "{{ _molecule_common_portable_vars.archivematica_upgrade_target_version }}"
+
+- name: "Require the plan-derived portable filesystem identity"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_migration_plan.migration_id == archivematica_upgrade_id
+      - (_archivematica_upgrade_plan_filesystem_uuids | unique) == [_molecule_common_portable_filesystem_uuid]
+      - _archivematica_upgrade_portable_filesystem_uuid == _molecule_common_portable_filesystem_uuid
+      - _archivematica_upgrade_execution_side == 'source'
+      - _archivematica_upgrade_path == _molecule_common_portable_root ~ '/' ~ archivematica_upgrade_id
+
+- name: "Create portable handoff fixture directories"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: "directory"
+    owner: "root"
+    group: "root"
+    mode: "0755"
+  loop:
+    - "{{ _archivematica_upgrade_checkpoint_dir }}"
+    - "{{ _archivematica_upgrade_es_migration_state_dir }}"
+    - "{{ _archivematica_upgrade_state_dir }}"
+
+- name: "Create portable state artifacts"
+  ansible.builtin.copy:
+    content: "{{ item.content | to_nice_json }}\n"
+    dest: "{{ item.path }}"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+  loop:
+    - path: "{{ _archivematica_upgrade_before_upgrade_aip_storage_stats_file }}"
+      content:
+        archival_storage: {}
+        storage_service: {}
+    - path: "{{ _archivematica_upgrade_before_upgrade_application_state_file }}"
+      content:
+        dashboard: {}
+        storage_service: {}
+    - path: "{{ _archivematica_upgrade_before_upgrade_index_counts_file }}"
+      content:
+        aipfiles: 6
+        aips: 3
+        transferfiles: 0
+        transfers: 0
+
+- name: "Create portable Elasticsearch version artifact"
+  ansible.builtin.copy:
+    content: "6.8.23\n"
+    dest: "{{ _archivematica_upgrade_before_upgrade_es_version_file }}"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+
+- name: "Inspect portable state artifacts"
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    checksum_algorithm: "sha256"
+  loop:
+    - "{{ _archivematica_upgrade_before_upgrade_aip_storage_stats_file }}"
+    - "{{ _archivematica_upgrade_before_upgrade_application_state_file }}"
+    - "{{ _archivematica_upgrade_before_upgrade_es_version_file }}"
+    - "{{ _archivematica_upgrade_before_upgrade_index_counts_file }}"
+  register: "_molecule_common_portable_artifact_states"
+
+- name: "Create portable handoff manifest"
+  ansible.builtin.copy:
+    content: >-
+      {{
+        {
+          'schema': 1,
+          'upgrade_id': archivematica_upgrade_id,
+          'upgrade_path': '1.17-to-1.18',
+          'handoff_mode': 'portable',
+          'source_host': inventory_hostname,
+          'filesystem_uuid': _molecule_common_portable_filesystem_uuid,
+          'plan_digest': _molecule_common_portable_vars.archivematica_upgrade_portable_plan_digest,
+          'source': {
+            'archivematica_version': '1.17.0',
+            'storage_service_version': '0.23.0',
+          },
+          'target': {
+            'archivematica_version': '1.18.0',
+            'storage_service_version': '0.24.0',
+          },
+          'artifacts': {
+            'state/before-upgrade-aip-storage-stats.json': {
+              'sha256': _molecule_common_portable_artifact_states.results[0].stat.checksum,
+              'bytes': _molecule_common_portable_artifact_states.results[0].stat.size,
+            },
+            'state/before-upgrade-application-state.json': {
+              'sha256': _molecule_common_portable_artifact_states.results[1].stat.checksum,
+              'bytes': _molecule_common_portable_artifact_states.results[1].stat.size,
+            },
+            'state/migrations/elasticsearch-6-to-8/before-upgrade-es-version': {
+              'sha256': _molecule_common_portable_artifact_states.results[2].stat.checksum,
+              'bytes': _molecule_common_portable_artifact_states.results[2].stat.size,
+            },
+            'state/migrations/elasticsearch-6-to-8/before-upgrade-index-counts.json': {
+              'sha256': _molecule_common_portable_artifact_states.results[3].stat.checksum,
+              'bytes': _molecule_common_portable_artifact_states.results[3].stat.size,
+            },
+          },
+        } |
+        to_nice_json
+      }}
+    dest: "{{ _archivematica_upgrade_portable_manifest_file }}"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+
+- name: "Inspect portable handoff manifest"
+  ansible.builtin.stat:
+    path: "{{ _archivematica_upgrade_portable_manifest_file }}"
+    checksum_algorithm: "sha256"
+  register: "_molecule_common_portable_manifest_state"
+
+- name: "Create portable source checkpoint"
+  ansible.builtin.copy:
+    content: "{{ _molecule_common_portable_manifest_state.stat.checksum }}\n"
+    dest: "{{ _archivematica_upgrade_portable_source_checkpoint }}"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+
+- name: "Run portable target common context"
+  ansible.builtin.include_role:
+    name: "{{ _molecule_common_role_path }}"
+    tasks_from: "common/load-context.yml"
+  vars:
+    archivematica_upgrade_handoff_mode: "portable"
+    archivematica_upgrade_phase: "import-before-install"
+    archivematica_upgrade_portable_filesystem_uuid: "{{ _molecule_common_portable_vars.archivematica_upgrade_portable_filesystem_uuid }}"
+    archivematica_upgrade_portable_manifest_sha256: "{{ _molecule_common_portable_manifest_state.stat.checksum }}"
+    archivematica_upgrade_portable_plan_digest: "{{ _molecule_common_portable_vars.archivematica_upgrade_portable_plan_digest }}"
+    archivematica_upgrade_portable_root: "{{ _molecule_common_portable_vars.archivematica_upgrade_portable_root }}"
+    archivematica_upgrade_portable_source_host: "{{ _molecule_common_portable_vars.archivematica_upgrade_portable_source_host }}"
+    archivematica_upgrade_portable_target_inputs_blocked_confirmed: true
+    archivematica_upgrade_target_storage_service_version: "{{ _molecule_common_portable_vars.archivematica_upgrade_target_storage_service_version }}"
+    archivematica_upgrade_target_version: "{{ _molecule_common_portable_vars.archivematica_upgrade_target_version }}"
+
+- name: "Run portable target state loading"
+  ansible.builtin.include_role:
+    name: "{{ _molecule_common_role_path }}"
+    tasks_from: "common/load-state.yml"
+  vars:
+    archivematica_upgrade_portable_filesystem_uuid: "{{ _molecule_common_portable_vars.archivematica_upgrade_portable_filesystem_uuid }}"
+    archivematica_upgrade_portable_manifest_sha256: "{{ _molecule_common_portable_manifest_state.stat.checksum }}"
+    archivematica_upgrade_portable_plan_digest: "{{ _molecule_common_portable_vars.archivematica_upgrade_portable_plan_digest }}"
+    archivematica_upgrade_portable_source_host: "{{ _molecule_common_portable_vars.archivematica_upgrade_portable_source_host }}"
+
+- name: "Require verified portable target state"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_execution_side == 'target'
+      - _archivematica_upgrade_portable_manifest.schema | int == 1
+      - _archivematica_upgrade_before_upgrade_aip_storage_stats.archival_storage == {}
+      - _archivematica_upgrade_before_upgrade_application_state.dashboard == {}

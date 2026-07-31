@@ -56,6 +56,8 @@
         - "{{ _phase_coverage_fixture_root }}/archive-build/elasticsearch-6.8.23/logs"
         - "{{ _phase_coverage_fixture_root }}/archive-build/elasticsearch-6.8.23/data"
         - "{{ _phase_coverage_fixture_root }}/keyrings"
+        - "{{ _phase_coverage_fixture_root }}/versions"
+        - "{{ _phase_coverage_fixture_root }}/portable-root"
         - "{{ archivematica_upgrade_es_data_dir }}"
         - "/etc/elasticsearch"
         - "/etc/init.d"
@@ -87,6 +89,29 @@
         - "/var/log/elasticsearch/elasticsearch.log"
         - "{{ _phase_coverage_processing_config_dir }}/defaultProcessingMCP.xml"
         - "{{ _phase_coverage_storage_db }}"
+
+    - name: "Create source Archivematica version fixtures"
+      ansible.builtin.copy:
+        content: "{{ item.content }}"
+        dest: "{{ item.path }}"
+        owner: "root"
+        group: "root"
+        mode: "0644"
+      loop:
+        - path: "{{ _phase_coverage_am_version_file }}"
+          content: "ARCHIVEMATICA_VERSION = (1, 17, 0)\n"
+        - path: "{{ _phase_coverage_ss_version_file }}"
+          content: "__version__ = \"0.23.0\"\n"
+
+    - name: "Install portable filesystem identity fixture"
+      ansible.builtin.copy:
+        dest: "{{ _phase_coverage_fixture_bin }}/findmnt"
+        owner: "root"
+        group: "root"
+        mode: "0755"
+        content: |
+          #!/bin/sh
+          printf 'phase-coverage-filesystem\n'
 
     - name: "Install phase coverage service discovery fixtures"
       ansible.builtin.include_tasks: "../service_fixtures.yml"
@@ -173,6 +198,25 @@
             "system_users": []
           }
           JSON
+              ;;
+            *"SELECT COUNT(*) FROM locations_location"*)
+              if [ -f "{{ _phase_coverage_fixture_root }}/rewrites-pending" ]; then
+                printf '1\n'
+              else
+                printf '0\n'
+              fi
+              ;;
+            *"UPDATE locations_location"*)
+              printf '%s\n' "$*" >> "{{ _phase_coverage_fixture_root }}/rewrites-applied"
+              rm -f "{{ _phase_coverage_fixture_root }}/rewrites-pending"
+              ;;
+            *" --execute "*)
+              cat >/dev/null
+              printf '0\n'
+              ;;
+            MCP|SS|*" MCP"|*" SS")
+              cat >/dev/null
+              printf '%s\n' "$*" >> "{{ _phase_coverage_fixture_root }}/mysql-imports"
               ;;
             *)
               cat >/dev/null

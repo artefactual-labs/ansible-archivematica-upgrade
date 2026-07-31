@@ -1,0 +1,121 @@
+---
+- name: "Inspect portable handoff control files"
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    checksum_algorithm: "sha256"
+  loop:
+    - "{{ _archivematica_upgrade_portable_manifest_file }}"
+    - "{{ _archivematica_upgrade_portable_source_checkpoint }}"
+  register: "_archivematica_upgrade_portable_control_files"
+
+- name: "Require portable handoff control files"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_portable_control_files.results | map(attribute='stat.isreg') | min
+      - >-
+        _archivematica_upgrade_portable_control_files.results[0].stat.checksum ==
+        archivematica_upgrade_portable_manifest_sha256 | lower
+    fail_msg: >-
+      The portable manifest or source-prepared checkpoint is missing, or the
+      manifest does not match the SHA-256 recorded outside the source VM.
+
+- name: "Read portable source preparation checkpoint"
+  ansible.builtin.slurp:
+    src: "{{ _archivematica_upgrade_portable_source_checkpoint }}"
+  register: "_archivematica_upgrade_portable_source_checkpoint_content"
+
+- name: "Require source checkpoint and manifest agreement"
+  ansible.builtin.assert:
+    that:
+      - >-
+        _archivematica_upgrade_portable_source_checkpoint_content.content |
+        b64decode |
+        trim ==
+        archivematica_upgrade_portable_manifest_sha256 | lower
+    fail_msg: >-
+      The source-prepared checkpoint does not identify the supplied portable
+      manifest.
+
+- name: "Read portable handoff manifest"
+  ansible.builtin.slurp:
+    src: "{{ _archivematica_upgrade_portable_manifest_file }}"
+  register: "_archivematica_upgrade_portable_manifest_content"
+
+- name: "Parse portable handoff manifest"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_portable_manifest: >-
+      {{
+        _archivematica_upgrade_portable_manifest_content.content |
+        b64decode |
+        from_json
+      }}
+
+- name: "Require portable handoff manifest identity"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_portable_manifest is mapping
+      - _archivematica_upgrade_portable_manifest.schema | default(0) | int == 1
+      - _archivematica_upgrade_portable_manifest.upgrade_id | default('') == archivematica_upgrade_id
+      - _archivematica_upgrade_portable_manifest.upgrade_path | default('') == archivematica_upgrade_path
+      - _archivematica_upgrade_portable_manifest.handoff_mode | default('') == 'portable'
+      - _archivematica_upgrade_portable_manifest.source_host | default('') == archivematica_upgrade_portable_source_host
+      - _archivematica_upgrade_portable_manifest.filesystem_uuid | default('') == _archivematica_upgrade_portable_filesystem_uuid
+      - _archivematica_upgrade_portable_manifest.plan_digest | default('') == archivematica_upgrade_portable_plan_digest
+      - _archivematica_upgrade_portable_manifest.source | default({}) is mapping
+      - _archivematica_upgrade_portable_manifest.target | default({}) is mapping
+      - >-
+        _archivematica_upgrade_portable_manifest.source.archivematica_version |
+        default('') ==
+        _archivematica_upgrade_path_config.source.archivematica_version
+      - >-
+        _archivematica_upgrade_portable_manifest.source.storage_service_version |
+        default('') ==
+        _archivematica_upgrade_path_config.source.storage_service_version
+      - >-
+        _archivematica_upgrade_portable_manifest.target.archivematica_version |
+        default('') ==
+        _archivematica_upgrade_requested_target_version
+      - >-
+        _archivematica_upgrade_portable_manifest.target.storage_service_version |
+        default('') ==
+        _archivematica_upgrade_requested_target_ss_version
+      - _archivematica_upgrade_portable_manifest.artifacts | default({}) is mapping
+      - _archivematica_upgrade_portable_manifest.artifacts | default({}) | length > 0
+    fail_msg: >-
+      The portable manifest does not match this upgrade ID, upgrade path
+      metadata, migration plan, source host, or attached filesystem.
+
+- name: "Require safe portable artifact entries"
+  ansible.builtin.assert:
+    that:
+      - item.key is match('^(backups|state)/[A-Za-z0-9._/-]+$')
+      - "'..' not in item.key.split('/')"
+      - item.value is mapping
+      - item.value.sha256 | default('') is match('^[a-fA-F0-9]{64}$')
+      - item.value.bytes | default(-1) | int >= 0
+    fail_msg: "Portable manifest artifact {{ item.key }} has unsafe or invalid metadata."
+  loop: "{{ _archivematica_upgrade_portable_manifest.artifacts | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: "Inspect portable handoff artifacts"
+  ansible.builtin.stat:
+    path: "{{ _archivematica_upgrade_path }}/{{ item.key }}"
+    checksum_algorithm: "sha256"
+  loop: "{{ _archivematica_upgrade_portable_manifest.artifacts | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  register: "_archivematica_upgrade_portable_artifact_states"
+
+- name: "Require intact portable handoff artifacts"
+  ansible.builtin.assert:
+    that:
+      - item.stat.isreg | default(false)
+      - item.stat.checksum | default('') == item.item.value.sha256
+      - item.stat.size | default(-1) | int == item.item.value.bytes | int
+    fail_msg: >-
+      Portable artifact {{ item.item.key }} is missing or does not match its
+      manifest checksum and size.
+  loop: "{{ _archivematica_upgrade_portable_artifact_states.results }}"
+  loop_control:
+    label: "{{ item.item.key }}"

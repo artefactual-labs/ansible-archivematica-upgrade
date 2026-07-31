@@ -18,12 +18,13 @@ The workflow follows the
 
 The role runs one explicit phase at a time. A stable
 `archivematica_upgrade_id` identifies the upgrade run and stores persistent
-state under `/var/lib/archivematica-upgrades/<archivematica_upgrade_id>`.
-Re-running a completed phase is safe. Cleanup is separate and requires an
-explicit confirmation variable.
+state under `/var/lib/archivematica-upgrades/<archivematica_upgrade_id>` in
+in-place mode or under the declared portable root in portable mode. Re-running
+a completed phase is safe. Cleanup is separate and requires an explicit
+confirmation variable.
 
-For a clean migration, run the phases and the normal Archivematica installation
-automation in this order:
+For a clean in-place upgrade, run the phases and the normal Archivematica
+installation automation in this order:
 
 1. Run `check-readiness`.
 2. Run `prepare`.
@@ -38,7 +39,117 @@ automation in this order:
 The installer invocation remains outside this role because a role cannot import
 and bracket an external playbook.
 
+### Manual server migration handoff
+
+`archivematica_upgrade_handoff_mode: portable` reuses the proven upgrade
+checks, backups, Elasticsearch migration, and validation across an old and a
+new server. It supports the operator-driven server migration workflow; it does
+not provision an OVH VM, create or attach block storage, alter LVM, update
+deployment inventory, configure VPN/firewall/monitoring, or change DNS.
+
+The only implemented portable upgrade path metadata is the exact transition
+Archivematica `1.17.0` with Storage Service `0.23.0` to Archivematica `1.18.0`
+with Storage Service `0.24.0`, using MySQL for both application databases. A
+future `1.18.0` to `1.19.0` upgrade path definition must be added separately
+and must not register the Elasticsearch 6-to-8 migration.
+
+The manual workflow is:
+
+1. Add the old and new hosts to deployment inventory together, using the
+   deployment repository's `-old` convention for the source.
+2. Provision the Rocky Linux target and configure its base networking, VPN,
+   firewall, LVM, and monitoring with the existing deployment automation.
+3. Keep public routes, watched inputs, automation integrations, and other
+   target writers blocked.
+4. Run the existing target installer once against empty target databases. This
+   bootstrap may start Archivematica and Storage Service because the target
+   cannot receive work.
+5. On the source, run portable `check-readiness` and `prepare`. Preparation
+   rechecks that the source has no active or queued work, stops its writer
+   services, creates the application and Elasticsearch backups, and writes a
+   portable manifest.
+6. Record the reported manifest SHA-256 outside the source VM.
+7. Following the reviewed OVH and LVM runbook, shut down or isolate the source,
+   unmount and deactivate the reused filesystems, detach the selected block
+   storage, attach it to the target, activate it, and mount it at the target's
+   declared paths.
+8. On the target, run `import-before-install`. The phase rechecks the attached
+   filesystem UUID and the out-of-band manifest SHA-256, validates every
+   artifact, stops installed target writer services, and imports the MCP and
+   Storage Service databases.
+9. Run the existing full target installer again. It applies the target database
+   migrations to the imported source databases and may start Archivematica and
+   Storage Service while inputs remain blocked.
+10. Immediately run portable `cutover-after-install`. It verifies the exact
+    installed target versions, stops writer services, restores the source
+    processing configurations, and verifies Elasticsearch 8.
+11. When the migration changes storage paths (for example a legacy
+    pre-convention holdings layout moving under the reused volume), run
+    portable `relocate-storage`. It copies the declared directory trees to
+    their new homes (sources stay in place for rollback), updates declared
+    symlinks, rewrites declared Storage Service location path prefixes in the
+    database, and reconciles stored pointer files against the new paths.
+12. Run portable `migrate` and `validate`. For `1.17.0` to `1.18.0`, `migrate`
+    starts a temporary Elasticsearch 6 node from the verified portable archive
+    and reindexes into the empty Elasticsearch 8 indices.
+13. Complete operator smoke tests, switch integrations and DNS to the target,
+    remove the old inventory after the retention period, and run `cleanup`.
+
+The same portable lifecycle supports both single-to-double and
+double-to-double storage migrations. The operator's OVH/LVM plan determines
+which source volume becomes holdings and which new processing volume is
+created. The upgrade role only requires its portable root and artifacts to
+travel on a declared reused filesystem. It never copies holdings with `rsync`.
+
+Before running any portable phase, use the same values on the source and
+target:
+
+```yaml
+archivematica_upgrade_path: "1.17-to-1.18"
+archivematica_upgrade_handoff_mode: "portable"
+archivematica_upgrade_id: "example-am-1.18-2026-07-30"
+archivematica_upgrade_portable_root: "/mnt/sto_example_AIP_DIP/.archivematica-upgrade"
+archivematica_upgrade_portable_source_host: "example-am-old"
+archivematica_upgrade_migration_plan_file: "<path-to-plan.json>"  # or set the filesystem UUID explicitly
+archivematica_upgrade_portable_plan_digest: "<server-migration-plan-sha256>"
+archivematica_upgrade_target_version: "1.18.0"
+archivematica_upgrade_target_storage_service_version: "0.24.0"
+```
+
+Set `archivematica_upgrade_portable_manifest_sha256` on target phases to the
+value reported by source `prepare`. `import-before-install` additionally
+requires:
+
+```yaml
+archivematica_upgrade_portable_import_confirmed: true
+archivematica_upgrade_portable_target_inputs_blocked_confirmed: true
+```
+
+Keep `archivematica_upgrade_portable_target_inputs_blocked_confirmed: true` on
+target import, cutover, migration, and validation until the deliberate
+production cutover is complete.
+
+Portable rollback is an infrastructure rollback, not `restore-backup` on the
+target. Before the target accepts new work, stop and isolate the target,
+deactivate and return the reused block storage to the old VM, reactivate its
+original mounts, restore the source inventory/DNS selection, and start the
+unchanged source installation. Portable mode intentionally rejects
+`restore-backup-check` and `restore-backup`. If the target has accepted new
+work, stop and reconcile that state explicitly; returning the old volumes alone
+is no longer a complete rollback.
+
 ## Prerequisites
+
+Use the repository's pinned controller stack, not an unqualified latest
+Ansible environment. The tested dependency set is Python 3.12, Ansible 8.5.0
+with `ansible-core` 2.15.13, JMESPath 1.1.0, Ansible Lint 24.12.2 on Linux,
+Molecule 6.0.3, `molecule-plugins[docker]` 23.5.3, Docker SDK 7.2.0,
+Requests 2.31.0, and pre-commit 4.6.1 from `uv.lock`. `pyproject.toml` allows
+Python 3.10 or newer, but the Makefile selects Python 3.12. Run development
+commands through the supplied `uv run`/Make targets so the lock file controls
+the remaining transitive Python dependencies. Newer Ansible releases are not
+part of this role's compatibility contract until the deployment roles and
+Molecule matrix pass with them.
 
 This workflow currently supports a single-host installation managed with
 `ansible-archivematica-src`. One or more local MCP client instances are
@@ -92,57 +203,126 @@ defaults.
 
 ## Variables
 
-Required operator inputs:
+Variables are listed alphabetically within each functional group.
+
+### Required operator inputs
 
 | Variable | Description |
 | --- | --- |
 | `archivematica_upgrade_id` | Stable identifier for the upgrade run, using letters, numbers, dots, underscores, or dashes. |
 | `archivematica_upgrade_snapshot_confirmed` | Set to `true` only after an external recovery snapshot or backup is confirmed. |
 
-Common optional variables:
+### Workflow and state
 
 | Variable | Default | Description |
 | --- | --- | --- |
+| `archivematica_upgrade_handoff_mode` | `in_place` | `in_place` for the original same-host lifecycle or `portable` for an operator-driven old-host to new-host handoff. |
 | `archivematica_upgrade_path` | `1.17-to-1.18` | Upgrade workflow implemented by this role. |
 | `archivematica_upgrade_phase` | `check-readiness` | Phase to execute when invoking the role directly. |
 | `archivematica_upgrade_root` | `/var/lib/archivematica-upgrades` | Persistent state and backup root. |
-| `archivematica_upgrade_es6_port` | `9500` | Port for the temporary Elasticsearch 6 node used by the `elasticsearch-6-to-8` migration. |
-| `archivematica_upgrade_es8_url` | `http://127.0.0.1:9200` | Compatibility endpoint used as the default for before-upgrade and after-upgrade Elasticsearch URLs. |
-| `archivematica_upgrade_before_upgrade_es_url` | `archivematica_upgrade_es8_url` | Elasticsearch endpoint used before the installer handoff. |
+
+### Portable handoff
+
+These variables are optional in `in_place` mode. Their descriptions identify
+which portable phases require them.
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `archivematica_upgrade_migration_plan_file` | empty | Path to the server-migration `plan.json` on the host. When set in portable mode, it must match `archivematica_upgrade_portable_plan_digest` and the portable filesystem UUID is derived from the plan's reused storage. |
+| `archivematica_upgrade_portable_filesystem_uuid` | empty | Filesystem UUID that must contain the portable root on both hosts. Required in portable mode unless derived from the migration plan file; when both are set they must agree. |
+| `archivematica_upgrade_portable_import_confirmed` | `false` | Explicit confirmation required before portable target database import. |
+| `archivematica_upgrade_portable_manifest_sha256` | empty | Out-of-band SHA-256 reported by source preparation. Required on portable target phases. |
+| `archivematica_upgrade_portable_plan_digest` | empty | SHA-256 of the reviewed server-migration plan bound into the portable manifest. Required in portable mode. |
+| `archivematica_upgrade_portable_root` | empty | Absolute root on a reused filesystem that carries the portable bundle between source and target. Required in portable mode. |
+| `archivematica_upgrade_portable_source_host` | empty | Source inventory hostname written into and verified against the portable manifest. Required in portable mode. |
+| `archivematica_upgrade_portable_target_inputs_blocked_confirmed` | `false` | Confirms public and automated target inputs remain blocked during import, installer, migration, and validation. |
+
+### Storage relocation
+
+These variables only affect the portable `relocate-storage` phase, which is
+optional: skip the phase entirely when the target keeps the source layout.
+Nothing is inferred; the phase refuses to run without declared work.
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `archivematica_upgrade_location_path_rewrites` | `[]` | List of `{old, new}` absolute path prefixes rewritten on Storage Service `locations_location.relative_path` rows. |
+| `archivematica_upgrade_pointer_file_dir` | empty | Directory searched for stale old-prefix references after pointer reconciliation; any hit fails the phase. |
+| `archivematica_upgrade_reconcile_command_install_path` | empty | Absolute path where the role installs its vendored copy of the `reconcile_pointer_file_locations` management command before running it as the Archivematica user. Empty skips pointer reconciliation. |
+| `archivematica_upgrade_ss_environment_file` | `/etc/sysconfig/archivematica-storage-service` | Environment file sourced before running the Storage Service management command. |
+| `archivematica_upgrade_ss_manage_command` | SS virtualenv `python -m archivematica.storage_service.manage` | Argv prefix used to run Storage Service management commands. |
+| `archivematica_upgrade_storage_relocations` | `[]` | List of `{src, dest}` absolute directory pairs copied with `cp --archive`; sources are never removed, preserving rollback. |
+| `archivematica_upgrade_symlink_updates` | `[]` | List of `{path, target}` symlinks forced to point at the relocated trees. |
+
+### Release and installer metadata
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `archivematica_upgrade_am_version_file` | Path metadata | Absolute override for installed Archivematica version metadata. By default, the selected upgrade path supplies the source layout for `check-readiness` and the target layout for later phases. |
+| `archivematica_upgrade_am_version_pattern` | Path metadata | Accepted Archivematica target version pattern. Override explicitly for QA branch testing. |
+| `archivematica_upgrade_src_role_names` | Path metadata | Accepted `ansible-archivematica-src` role names during the readiness check. Override explicitly for QA branch testing. |
+| `archivematica_upgrade_ss_version_file` | Path metadata | Absolute override for installed Storage Service version metadata. By default, the selected upgrade path supplies the source layout for `check-readiness` and the target layout for later phases. |
+| `archivematica_upgrade_ss_version_pattern` | Path metadata | Accepted Storage Service target version pattern. Override explicitly for QA branch testing. |
+| `archivematica_upgrade_target_storage_service_version` | empty | Exact requested target Storage Service release. Required in portable mode and matched to the selected upgrade path metadata. |
+| `archivematica_upgrade_target_version` | empty | Exact requested target Archivematica release. Required in portable mode and matched to the selected upgrade path metadata. |
+
+### Elasticsearch migration
+
+| Variable | Default | Description |
+| --- | --- | --- |
 | `archivematica_upgrade_after_upgrade_es_url` | `archivematica_upgrade_es8_url` | Elasticsearch endpoint installed by the normal Archivematica installation automation. |
-| `archivematica_upgrade_es_data_dir` | `elasticsearch_data_dir` or `/var/lib/elasticsearch` | Packaged Elasticsearch data directory to measure, back up, and preserve during cutover when a migration needs that. |
-| `archivematica_upgrade_es6_user` | SSH user | Non-root account used to run the temporary Elasticsearch 6 process. |
+| `archivematica_upgrade_before_upgrade_es_url` | `archivematica_upgrade_es8_url` | Elasticsearch endpoint used before the installer handoff. |
 | `archivematica_upgrade_es6_archive_url` | Elastic download URL | Optional Elasticsearch 6 archive URL override. Set `archivematica_upgrade_es6_checksum` with this override. |
 | `archivematica_upgrade_es6_checksum` | empty | Optional checksum override for the downloaded Elasticsearch 6 archive. When empty, the role verifies Elastic's published SHA-512 checksum URL. |
 | `archivematica_upgrade_es6_java_opts` | `-Xms2g -Xmx2g` | JVM memory options for the temporary Elasticsearch 6 node. |
-| `archivematica_upgrade_java_11_home` | empty | Optional Java 11 home override for the temporary Elasticsearch 6 node. When empty, the role searches under `/usr/lib/jvm`. The selected executable must report Java major version 11. |
-| `archivematica_upgrade_mysqldump_timeout` | `7200` | Maximum number of seconds allowed for each MySQL database backup. |
+| `archivematica_upgrade_es6_port` | `9500` | Port for the temporary Elasticsearch 6 node used by the `elasticsearch-6-to-8` migration. |
+| `archivematica_upgrade_es6_user` | SSH user | Non-root account used to run the temporary Elasticsearch 6 process. |
+| `archivematica_upgrade_es8_url` | `http://127.0.0.1:9200` | Compatibility endpoint used as the default for before-upgrade and after-upgrade Elasticsearch URLs. |
+| `archivematica_upgrade_es_data_dir` | `elasticsearch_data_dir` or `/var/lib/elasticsearch` | Packaged Elasticsearch data directory to measure, back up, and preserve during cutover when a migration needs that. |
 | `archivematica_upgrade_es_data_timeout` | `7200` | Maximum number of seconds allowed for Elasticsearch filesystem archives and temporary-node copy operations. |
-| `archivematica_upgrade_reindex_timeout` | `3600` | Maximum number of seconds to poll each asynchronous remote-reindex task. |
+| `archivematica_upgrade_java_11_home` | empty | Optional Java 11 home override for the temporary Elasticsearch 6 node. When empty, the role searches under `/usr/lib/jvm`. The selected executable must report Java major version 11. |
 | `archivematica_upgrade_reindex_batch_size` | `1000` | Remote reindex batch size. Tune this with `archivematica_upgrade_reindex_timeout` for large installations. |
-| `archivematica_upgrade_disk_multiplier` | `3` | Conservative working-storage safety multiplier applied by migrations that need extra Elasticsearch working copies. |
+| `archivematica_upgrade_reindex_timeout` | `3600` | Maximum number of seconds to poll each asynchronous remote-reindex task. |
+
+### Capacity and database access
+
+| Variable | Default | Description |
+| --- | --- | --- |
 | `archivematica_upgrade_disk_extra_bytes` | `1073741824` | Extra free-space margin required during readiness checks for upgrade storage and after-upgrade migration filesystems. |
-| `archivematica_upgrade_mysql_defaults_extra_file` | empty | Optional protected MySQL client defaults file used by readiness queries and backups. Use this for non-default hosts, sockets, or credentials. |
+| `archivematica_upgrade_disk_multiplier` | `3` | Conservative working-storage safety multiplier applied by migrations that need extra Elasticsearch working copies. |
 | `archivematica_upgrade_mysql_client_args` | `[]` | Additional non-secret MySQL client arguments used by readiness queries and backups. Keep credentials in the protected defaults file. |
-| `archivematica_upgrade_archivematica_user` | `archivematica` | Local Archivematica account that owns restored Dashboard processing configuration files. |
-| `archivematica_upgrade_archivematica_group` | `archivematica_upgrade_archivematica_user` | Local Archivematica group that owns restored Dashboard processing configuration files. |
-| `archivematica_upgrade_processing_config_dir` | `/var/archivematica/sharedDirectory/sharedMicroServiceTasksConfigs/processingMCPConfigs` | Dashboard processing configuration directory backed up during `prepare` and restored during `restore-backup`. |
-| `archivematica_upgrade_src_role_names` | Path metadata | Accepted `ansible-archivematica-src` role names during the readiness check. Override explicitly for QA branch testing. |
-| `archivematica_upgrade_am_version_pattern` | Path metadata | Accepted Archivematica target version pattern. Override explicitly for QA branch testing. |
-| `archivematica_upgrade_ss_version_pattern` | Path metadata | Accepted Storage Service target version pattern. Override explicitly for QA branch testing. |
+| `archivematica_upgrade_mysql_defaults_extra_file` | empty | Optional protected MySQL client defaults file used by readiness queries and backups. Use this for non-default hosts, sockets, or credentials. |
+| `archivematica_upgrade_mysqldump_timeout` | `7200` | Maximum number of seconds allowed for each MySQL database backup. |
+
+### Managed files and services
+
+| Variable | Default | Description |
+| --- | --- | --- |
 | `archivematica_upgrade_application_services` | Standard Archivematica services | Local systemd services stopped during the upgrade and started during validation. Override to include additional local units. When multiple MCP clients are configured, the role replaces `archivematica-mcp-client` with the numbered units managed by `ansible-archivematica-src`. Installed common local services are added automatically unless ignored. |
+| `archivematica_upgrade_archivematica_group` | `archivematica_upgrade_archivematica_user` | Local Archivematica group that owns restored Dashboard processing configuration files. |
+| `archivematica_upgrade_archivematica_user` | `archivematica` | Local Archivematica account that owns restored Dashboard processing configuration files. |
 | `archivematica_upgrade_common_local_services` | `gearman-job-server`, `nginx` | Common local units that are automatically managed when installed unless explicitly ignored. |
 | `archivematica_upgrade_ignored_common_local_services` | `[]` | Installed common local units intentionally left outside this upgrade workflow. |
-| `archivematica_upgrade_restore_confirmed` | `false` | Must be set to `true` for `restore-backup` after confirming rollback should start from the prepared backup artifacts. |
+| `archivematica_upgrade_processing_config_dir` | `/var/archivematica/sharedDirectory/sharedMicroServiceTasksConfigs/processingMCPConfigs` | Dashboard processing configuration directory backed up during `prepare` and restored during `restore-backup`. |
+
+### Confirmation and cleanup gates
+
+| Variable | Default | Description |
+| --- | --- | --- |
 | `archivematica_upgrade_cleanup_confirmed` | `false` | Must be set to `true` for cleanup. |
 | `archivematica_upgrade_remove_rollback_data_confirmed` | `false` | Set to `true` during cleanup only after the rollback retention period has ended. |
+| `archivematica_upgrade_restore_confirmed` | `false` | Must be set to `true` for `restore-backup` after confirming rollback should start from the prepared backup artifacts. |
+
+### API and search validation
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `archivematica_upgrade_am_api_key` | Dashboard configured API key | Dashboard API key used during validation. |
 | `archivematica_upgrade_am_api_url` | Dashboard site URL | Dashboard URL used during authenticated API validation. |
 | `archivematica_upgrade_am_api_user` | Dashboard configured user | Dashboard API user used during validation. |
-| `archivematica_upgrade_am_api_key` | Dashboard configured API key | Dashboard API key used during validation. |
 | `archivematica_upgrade_am_search_validation_url` | empty | Optional Dashboard-compatible archival-storage search URL used for a post-upgrade smoke test. The endpoint must be reachable from the upgrade host and return Dashboard search JSON. |
+| `archivematica_upgrade_ss_api_key` | Storage Service configured API key | Storage Service API key used during validation. |
 | `archivematica_upgrade_ss_api_url` | Storage Service configured URL | Storage Service URL used during authenticated API validation. |
 | `archivematica_upgrade_ss_api_user` | Storage Service configured user | Storage Service API user used during validation. |
-| `archivematica_upgrade_ss_api_key` | Storage Service configured API key | Storage Service API key used during validation. |
 | `archivematica_upgrade_validate_certs` | `true` | Whether authenticated API validation verifies TLS certificates. |
 
 ## Migration safety

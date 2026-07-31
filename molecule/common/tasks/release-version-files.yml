@@ -1,0 +1,66 @@
+---
+- name: "Load source release version-file context"
+  ansible.builtin.include_role:
+    name: "{{ _molecule_common_role_path }}"
+    tasks_from: "common/load-context.yml"
+  vars:
+    archivematica_src_dir: "{{ _molecule_common_source_src_dir }}"
+    archivematica_upgrade_am_version_file: ""
+    archivematica_upgrade_phase: "check-readiness"
+    archivematica_upgrade_ss_version_file: ""
+
+- name: "Require 1.17 source version-file selection"
+  ansible.builtin.assert:
+    that:
+      - >-
+        _archivematica_upgrade_effective_am_version_file ==
+        _molecule_common_source_src_dir ~
+        '/archivematica/src/archivematicaCommon/lib/version.py'
+      - >-
+        _archivematica_upgrade_effective_ss_version_file ==
+        _molecule_common_source_src_dir ~
+        '/archivematica-storage-service/storage_service/storage_service/__init__.py'
+
+- name: "Detect source release versions from selected files"
+  ansible.builtin.include_role:
+    name: "{{ _molecule_common_role_path }}"
+    tasks_from: "common/detect-installed-versions.yml"
+
+- name: "Require detected 1.17 source releases"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_installed_am_version == '1.17.0'
+      - _archivematica_upgrade_installed_ss_version == '0.23.0'
+
+- name: "Load target release version-file context"
+  ansible.builtin.include_role:
+    name: "{{ _molecule_common_role_path }}"
+    tasks_from: "common/load-context.yml"
+  vars:
+    archivematica_src_dir: "{{ _molecule_common_target_src_dir }}"
+    archivematica_upgrade_am_version_file: ""
+    archivematica_upgrade_phase: "cutover-after-install"
+    archivematica_upgrade_ss_version_file: ""
+
+- name: "Require 1.18 target version-file selection"
+  ansible.builtin.assert:
+    that:
+      - >-
+        _archivematica_upgrade_effective_am_version_file ==
+        _molecule_common_target_src_dir ~
+        '/archivematica/src/archivematica/archivematicaCommon/version.py'
+      - >-
+        _archivematica_upgrade_effective_ss_version_file ==
+        _molecule_common_target_src_dir ~
+        '/archivematica-storage-service/src/archivematica/storage_service/storage_service/__init__.py'
+
+- name: "Detect target release versions from selected files"
+  ansible.builtin.include_role:
+    name: "{{ _molecule_common_role_path }}"
+    tasks_from: "common/detect-installed-versions.yml"
+
+- name: "Require detected 1.18 target releases"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_installed_am_version == '1.18.0'
+      - _archivematica_upgrade_installed_ss_version == '0.24.0'

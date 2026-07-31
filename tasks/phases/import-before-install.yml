@@ -1,0 +1,150 @@
+---
+- name: "Load common Archivematica upgrade values"
+  ansible.builtin.include_tasks: "common/load-context.yml"
+
+- name: "Require explicit portable target import confirmations"
+  ansible.builtin.assert:
+    that:
+      - archivematica_upgrade_portable_import_confirmed | bool
+      - archivematica_upgrade_portable_target_inputs_blocked_confirmed | bool
+      - archivematica_upgrade_portable_manifest_sha256 | length == 64
+      - archivematica_src_ss_db_mysql_enabled | default(true) | bool
+    fail_msg: >-
+      Before target import, verify the target inputs are blocked, set
+      archivematica_upgrade_portable_target_inputs_blocked_confirmed=true,
+      set archivematica_upgrade_portable_import_confirmed=true, and supply the
+      source manifest SHA-256 out of band. The portable workflow requires
+      MySQL-backed Storage Service state.
+
+- name: "Load prepared Archivematica upgrade state"
+  ansible.builtin.include_tasks: "common/load-state.yml"
+
+- name: "Check whether portable target import already completed"
+  ansible.builtin.stat:
+    path: "{{ _archivematica_upgrade_portable_import_checkpoint }}"
+  register: "_archivematica_upgrade_portable_import_checkpoint_state"
+
+- name: "Read target service facts before database import"
+  ansible.builtin.service_facts:
+  when: not _archivematica_upgrade_portable_import_checkpoint_state.stat.exists
+
+- name: "Initialize installed target writer services"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_installed_target_writer_services: []
+  when: not _archivematica_upgrade_portable_import_checkpoint_state.stat.exists
+
+- name: "Collect installed target writer services"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_installed_target_writer_services: >-
+      {{ _archivematica_upgrade_installed_target_writer_services + [item] }}
+  loop: "{{ _archivematica_upgrade_application_services }}"
+  when:
+    - not _archivematica_upgrade_portable_import_checkpoint_state.stat.exists
+    - >-
+      item + '.service' in (ansible_facts.services | default({})) or
+      item in (ansible_facts.services | default({}))
+
+- name: "Stop target writer services before database import"
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: "stopped"
+  loop: "{{ _archivematica_upgrade_installed_target_writer_services | default([]) }}"
+  when: not _archivematica_upgrade_portable_import_checkpoint_state.stat.exists
+
+- name: "Refresh target service facts before database import"
+  ansible.builtin.service_facts:
+  when: not _archivematica_upgrade_portable_import_checkpoint_state.stat.exists
+
+- name: "Initialize running target writer services"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_running_target_writer_services: []
+  when: not _archivematica_upgrade_portable_import_checkpoint_state.stat.exists
+
+- name: "Collect running target writer services"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_running_target_writer_services: >-
+      {{
+        _archivematica_upgrade_running_target_writer_services +
+        (
+          [item]
+          if
+          (
+            (ansible_facts.services | default({})).get(
+              item + '.service',
+              (ansible_facts.services | default({})).get(item, {})
+            )
+          ).state | default('missing') == 'running'
+          else []
+        )
+      }}
+  loop: "{{ _archivematica_upgrade_application_services }}"
+  when: not _archivematica_upgrade_portable_import_checkpoint_state.stat.exists
+
+- name: "Require a writer-free target before database import"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_running_target_writer_services | default([]) | length == 0
+    fail_msg: >-
+      Target writer services are running before import:
+      {{
+        _archivematica_upgrade_running_target_writer_services |
+        default([]) |
+        join(', ')
+      }}.
+      Stop them and keep all target inputs blocked.
+  when: not _archivematica_upgrade_portable_import_checkpoint_state.stat.exists
+
+- name: "Require target MySQL database infrastructure"
+  ansible.builtin.command:
+    argv: >-
+      {{
+        ['mysql'] +
+        _archivematica_upgrade_mysql_client_args +
+        [
+          item.name,
+          '--execute',
+          'SELECT 1;'
+        ]
+      }}
+  loop:
+    - name: "{{ archivematica_src_am_db_name }}"
+      enabled: true
+    - name: "{{ archivematica_src_ss_db_name }}"
+      enabled: "{{ archivematica_src_ss_db_mysql_enabled | default(true) | bool }}"
+  loop_control:
+    label: "{{ item.name }}"
+  changed_when: false
+  no_log: true
+  when:
+    - item.enabled | bool
+    - not _archivematica_upgrade_portable_import_checkpoint_state.stat.exists
+
+- name: "Import portable Archivematica MySQL databases"
+  ansible.builtin.shell: |
+    set -o errexit -o nounset -o pipefail
+    gzip -dc {{ (_archivematica_upgrade_backup_dir ~ '/' ~ item.name ~ '.sql.gz') | quote }} |
+      mysql {{ _archivematica_upgrade_mysql_client_args | map('quote') | join(' ') }} {{ item.name | quote }}
+  args:
+    executable: "/bin/bash"
+  loop:
+    - name: "{{ archivematica_src_am_db_name }}"
+      enabled: true
+    - name: "{{ archivematica_src_ss_db_name }}"
+      enabled: "{{ archivematica_src_ss_db_mysql_enabled | default(true) | bool }}"
+  loop_control:
+    label: "{{ item.name }}"
+  changed_when: true
+  no_log: true
+  when:
+    - item.enabled | bool
+    - not _archivematica_upgrade_portable_import_checkpoint_state.stat.exists
+
+- name: "Record completed portable target import"
+  ansible.builtin.copy:
+    content: "{{ archivematica_upgrade_portable_manifest_sha256 | lower }}\n"
+    dest: "{{ _archivematica_upgrade_portable_import_checkpoint }}"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+    force: false
+  when: not _archivematica_upgrade_portable_import_checkpoint_state.stat.exists

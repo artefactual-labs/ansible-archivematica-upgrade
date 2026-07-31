@@ -13,6 +13,7 @@
       {{ _archivematica_upgrade_es_after_upgrade_min_version }} or later and
       earlier than {{ _archivematica_upgrade_es_after_upgrade_max_version }}
       before running the Elasticsearch 6 to 8 migration.
+  when: _archivematica_upgrade_handoff_mode == 'in_place'
 
 - name: "Read the packaged Elasticsearch version"
   ansible.builtin.uri:
@@ -117,6 +118,7 @@
       but requires at least {{ _archivematica_upgrade_es_data_required_bytes }} bytes
       for the Elasticsearch 8 after-upgrade data. Increase its free space or review
       the sizing override.
+  when: _archivematica_upgrade_handoff_mode == 'in_place'
 
 - name: "Report Elasticsearch migration readiness sizing"
   ansible.builtin.debug:

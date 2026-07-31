@@ -50,7 +50,11 @@
             ;;
       {% endfor %}
         esac
-        return 1
+        if [ -x "/etc/init.d/$service" ]; then
+          test ! -f "/tmp/$service.started"
+          return $?
+        fi
+        test -f "/tmp/$service.stopped"
       }
 
       case "$1" in
@@ -76,6 +80,16 @@
               exit 0
             fi
             exit 3
+          fi
+          if [ "$action" = "stop" ]; then
+            rm -f "/tmp/$service.started"
+            touch "/tmp/$service.stopped"
+            exit 0
+          fi
+          if [ "$action" = "start" ]; then
+            rm -f "/tmp/$service.stopped"
+            touch "/tmp/$service.started"
+            exit 0
           fi
           exit 0
           ;;
@@ -121,4 +135,13 @@
           exit 0
           ;;
       esac
+  loop: "{{ molecule_service_fixture_names }}"
+
+- name: "Initialize service fixture running state"
+  ansible.builtin.file:
+    path: "/tmp/{{ item }}.started"
+    state: "touch"
+    owner: "root"
+    group: "root"
+    mode: "0644"
   loop: "{{ molecule_service_fixture_names }}"

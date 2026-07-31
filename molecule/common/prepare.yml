@@ -37,6 +37,12 @@
         - "{{ _molecule_common_fixture_root }}"
         - "{{ _molecule_common_fixture_bin }}"
         - "{{ _molecule_common_fixture_root }}/processingMCPConfigs"
+        - "{{ _molecule_common_portable_root }}"
+        - "{{ _molecule_common_source_src_dir }}/archivematica/src/archivematicaCommon/lib"
+        - "{{ _molecule_common_source_src_dir }}/archivematica-storage-service/storage_service/storage_service"
+        - "{{ _molecule_common_target_src_dir }}/archivematica/src/archivematica/archivematicaCommon"
+        - "{{ _molecule_common_target_src_dir }}/archivematica-storage-service/src/archivematica/storage_service/storage_service"
+        - "{{ _molecule_common_version_root }}"
         - "/etc/init.d"
         - "/etc/systemd/system"
         - "/var/archivematica/sharedDirectory/currentlyProcessing"
@@ -50,6 +56,46 @@
         owner: "root"
         group: "root"
         mode: "0644"
+
+    - name: "Create installed Archivematica version fixtures"
+      ansible.builtin.copy:
+        content: "{{ item.content }}"
+        dest: "{{ item.path }}"
+        owner: "root"
+        group: "root"
+        mode: "0644"
+      loop:
+        - path: "{{ archivematica_upgrade_am_version_file }}"
+          content: "ARCHIVEMATICA_VERSION = (1, 17, 0)\n"
+        - path: "{{ archivematica_upgrade_ss_version_file }}"
+          content: "__version__ = \"0.23.0\"\n"
+
+    - name: "Create release-aware installed version fixtures"
+      ansible.builtin.copy:
+        content: "{{ item.content }}"
+        dest: "{{ item.path }}"
+        owner: "root"
+        group: "root"
+        mode: "0644"
+      loop:
+        - path: "{{ _molecule_common_source_src_dir }}/archivematica/src/archivematicaCommon/lib/version.py"
+          content: "ARCHIVEMATICA_VERSION = (1, 17, 0)\n"
+        - path: "{{ _molecule_common_source_src_dir }}/archivematica-storage-service/storage_service/storage_service/__init__.py"
+          content: "__version__ = \"0.23.0\"\n"
+        - path: "{{ _molecule_common_target_src_dir }}/archivematica/src/archivematica/archivematicaCommon/version.py"
+          content: "ARCHIVEMATICA_VERSION = (1, 18, 0)\n"
+        - path: "{{ _molecule_common_target_src_dir }}/archivematica-storage-service/src/archivematica/storage_service/storage_service/__init__.py"
+          content: "__version__ = \"0.24.0\"\n"
+
+    - name: "Install portable filesystem identity fixture"
+      ansible.builtin.copy:
+        dest: "{{ _molecule_common_fixture_bin }}/findmnt"
+        owner: "root"
+        group: "root"
+        mode: "0755"
+        content: |
+          #!/bin/sh
+          printf '%s\n' "{{ _molecule_common_portable_filesystem_uuid }}"
 
     - name: "Create local Archivematica apt key fixture"
       ansible.builtin.copy:

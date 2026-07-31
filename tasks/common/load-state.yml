@@ -1,4 +1,10 @@
 ---
+- name: "Load and verify portable source handoff"
+  ansible.builtin.include_tasks: "common/load-verified-portable-handoff.yml"
+  when:
+    - _archivematica_upgrade_handoff_mode == 'portable'
+    - _archivematica_upgrade_execution_side == 'target'
+
 - name: "Check required Archivematica upgrade state files"
   ansible.builtin.stat:
     path: "{{ item }}"

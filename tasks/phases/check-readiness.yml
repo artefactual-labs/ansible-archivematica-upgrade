@@ -2,10 +2,35 @@
 - name: "Load common Archivematica upgrade values"
   ansible.builtin.include_tasks: "common/load-context.yml"
 
-- name: "Require the AM 1.18 installer configuration and snapshot confirmation"
+- name: "Detect installed source Archivematica versions"
+  ansible.builtin.include_tasks: "common/detect-installed-versions.yml"
+
+- name: "Require the selected source release and recovery confirmation"
   ansible.builtin.assert:
     that:
       - archivematica_upgrade_snapshot_confirmed | default(false) | bool
+      - >-
+        _archivematica_upgrade_installed_am_version ==
+        _archivematica_upgrade_path_config.source.archivematica_version
+      - >-
+        _archivematica_upgrade_installed_ss_version ==
+        _archivematica_upgrade_path_config.source.storage_service_version
+      - ansible_distribution in ['Ubuntu', 'Rocky', 'RedHat']
+      - >-
+        _archivematica_upgrade_handoff_mode != 'portable' or
+        archivematica_upgrade_portable_source_host == inventory_hostname
+      - >-
+        _archivematica_upgrade_handoff_mode != 'portable' or
+        archivematica_src_ss_db_mysql_enabled | default(true) | bool
+    fail_msg: >-
+      Confirm a VM or block-storage snapshot and select upgrade path metadata
+      whose exact source Archivematica and Storage Service versions match the
+      installed source. Portable preparation must run on its declared source
+      inventory host and requires a MySQL-backed Storage Service database.
+
+- name: "Require the in-place target installer configuration"
+  ansible.builtin.assert:
+    that:
       - >-
         (archivematica_src_role_name | default('artefactual.archivematica-src'))
         in _archivematica_upgrade_effective_src_role_names
@@ -16,13 +41,24 @@
         (archivematica_src_ss_version | default(''))
         is match(_archivematica_upgrade_effective_ss_version_pattern)
       - archivematica_src_search_enabled | default(true) | bool
-      - ansible_distribution in ['Ubuntu', 'Rocky', 'RedHat']
     fail_msg: >-
-      Confirm a VM or block-storage snapshot with
-      archivematica_upgrade_snapshot_confirmed=true, configure the host with
-      target installer variables for {{ archivematica_upgrade_path }}, use a
-      supported ansible-archivematica-src alias and full search indexing, and
-      use a supported Ubuntu, Rocky, or Red Hat host before upgrading.
+      Configure the in-place host with target installer variables for
+      {{ archivematica_upgrade_path }}, use a supported
+      ansible-archivematica-src alias, and retain full search indexing.
+  when: _archivematica_upgrade_handoff_mode == 'in_place'
+
+- name: "Report selected portable upgrade path metadata"
+  ansible.builtin.debug:
+    msg:
+      handoff_mode: "{{ _archivematica_upgrade_handoff_mode }}"
+      source:
+        archivematica: "{{ _archivematica_upgrade_installed_am_version }}"
+        storage_service: "{{ _archivematica_upgrade_installed_ss_version }}"
+      target:
+        archivematica: "{{ _archivematica_upgrade_requested_target_version }}"
+        storage_service: "{{ _archivematica_upgrade_requested_target_ss_version }}"
+      upgrade_path: "{{ archivematica_upgrade_path }}"
+  when: _archivematica_upgrade_handoff_mode == 'portable'
 
 - name: "Require an idle Archivematica pipeline"
   ansible.builtin.include_tasks: "common/require-idle.yml"

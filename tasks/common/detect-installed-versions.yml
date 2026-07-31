@@ -1,0 +1,78 @@
+---
+- name: "Inspect installed Archivematica version files"
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ _archivematica_upgrade_effective_am_version_file }}"
+    - "{{ _archivematica_upgrade_effective_ss_version_file }}"
+  register: "_archivematica_upgrade_installed_version_files"
+
+- name: "Require installed Archivematica version files"
+  ansible.builtin.assert:
+    that:
+      - >-
+        _archivematica_upgrade_installed_version_files.results |
+        map(attribute='stat.isreg') |
+        map('default', false) |
+        min
+    fail_msg: >-
+      Unable to read the installed Archivematica or Storage Service version
+      files selected for {{ archivematica_upgrade_path }} phase
+      {{ archivematica_upgrade_phase }}: Archivematica
+      {{ _archivematica_upgrade_effective_am_version_file }}; Storage Service
+      {{ _archivematica_upgrade_effective_ss_version_file }}. Check the source
+      checkout or explicitly override archivematica_upgrade_am_version_file and
+      archivematica_upgrade_ss_version_file.
+
+- name: "Read installed Archivematica version files"
+  ansible.builtin.slurp:
+    src: "{{ item }}"
+  loop:
+    - "{{ _archivematica_upgrade_effective_am_version_file }}"
+    - "{{ _archivematica_upgrade_effective_ss_version_file }}"
+  register: "_archivematica_upgrade_installed_version_contents"
+
+- name: "Parse installed Archivematica versions"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_installed_am_version_parts: >-
+      {{
+        (
+          _archivematica_upgrade_installed_version_contents.results[0].content |
+          b64decode |
+          regex_findall(
+            'ARCHIVEMATICA_VERSION\s*=\s*\(\s*([0-9]+)\s*,\s*([0-9]+)\s*,\s*([0-9]+)\s*\)'
+          )
+        )
+      }}
+    _archivematica_upgrade_installed_ss_versions: >-
+      {{
+        (
+          _archivematica_upgrade_installed_version_contents.results[1].content |
+          b64decode |
+          regex_findall(
+            '__version__\s*=\s*["'']([0-9]+[.][0-9]+[.][0-9]+)["'']'
+          )
+        )
+      }}
+
+- name: "Require unambiguous installed Archivematica versions"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_installed_am_version_parts | length == 1
+      - _archivematica_upgrade_installed_ss_versions | length == 1
+    fail_msg: >-
+      Installed Archivematica or Storage Service version metadata is missing
+      or ambiguous. Archivematica matches:
+      {{ _archivematica_upgrade_installed_am_version_parts | to_json }};
+      Storage Service matches:
+      {{ _archivematica_upgrade_installed_ss_versions | to_json }}.
+
+- name: "Set installed Archivematica versions"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_installed_am_version: >-
+      {{
+        _archivematica_upgrade_installed_am_version_parts[0] |
+        join('.')
+      }}
+    _archivematica_upgrade_installed_ss_version: >-
+      {{ _archivematica_upgrade_installed_ss_versions[0] }}

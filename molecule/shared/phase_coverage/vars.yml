@@ -12,6 +12,8 @@ _phase_coverage_es6_archive_url: "file://{{ _phase_coverage_es6_archive }}"
 _phase_coverage_es6_archive_checksum_file: "{{ _phase_coverage_fixture_root }}/elasticsearch-6.8.23.sha256"
 _phase_coverage_processing_config_dir: "{{ _phase_coverage_fixture_root }}/processingMCPConfigs"
 _phase_coverage_storage_db: "/var/archivematica/storage-service/storage.db"
+_phase_coverage_am_version_file: "{{ _phase_coverage_fixture_root }}/versions/archivematica-version.py"
+_phase_coverage_ss_version_file: "{{ _phase_coverage_fixture_root }}/versions/storage-service-version.py"
 _phase_coverage_apt_keyring: "{{ _phase_coverage_fixture_root }}/keyrings/archivematica-archive-keyring.gpg"
 _phase_coverage_coverage_file: "{{ lookup('env', 'MOLECULE_COVERAGE_FILE') }}"
 _phase_coverage_java_11_home: >-
@@ -41,6 +43,8 @@ archivematica_upgrade_es_data_timeout: 30
 archivematica_upgrade_reindex_timeout: 5
 archivematica_upgrade_disk_extra_bytes: 0
 archivematica_upgrade_processing_config_dir: "{{ _phase_coverage_processing_config_dir }}"
+archivematica_upgrade_am_version_file: "{{ _phase_coverage_am_version_file }}"
+archivematica_upgrade_ss_version_file: "{{ _phase_coverage_ss_version_file }}"
 archivematica_upgrade_application_services:
   - "archivematica-storage-service"
   - "archivematica-dashboard"

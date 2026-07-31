@@ -53,6 +53,14 @@
         name: "{{ _molecule_common_role_path }}"
         tasks_from: "common/load-context.yml"
 
+    - name: "Verify release-aware installed version files"
+      ansible.builtin.include_tasks: "tasks/release-version-files.yml"
+
+    - name: "Restore common load context after version-file verification"
+      ansible.builtin.include_role:
+        name: "{{ _molecule_common_role_path }}"
+        tasks_from: "common/load-context.yml"
+
     - name: "Run common load state tasks for verification"
       ansible.builtin.include_role:
         name: "{{ _molecule_common_role_path }}"
@@ -456,6 +464,9 @@
       ansible.builtin.assert:
         that:
           - not _molecule_common_distro_skip_keyring.stat.exists
+
+    - name: "Verify portable common task behavior"
+      ansible.builtin.include_tasks: "tasks/portable-handoff.yml"
 
     - name: "Verify invalid upgrade identifier is rejected"
       block:

@@ -17,7 +17,12 @@ MOLECULE_CMD = MOLECULE_ANSIBLE_HOME=$(MOLECULE_ANSIBLE_HOME) MOLECULE_CALLBACK_
 MOLECULE_PHASE_COVERAGE_CONFIG ?= molecule/phase-coverage.yml
 MOLECULE_PHASE_ENFORCE_COVERAGE ?= true
 MOLECULE_PHASE_PLATFORM ?= ubuntu2404
-MOLECULE_PHASE_SCENARIOS ?= phase-lifecycle-mysql phase-lifecycle-sqlite phase-resume-checkpoints phase-restore-success phase-guardrails-negative elasticsearch-readiness-cutover-negative elasticsearch-runtime-negative elasticsearch-reindex-negative elasticsearch-restore-validate-cleanup-negative elasticsearch-search-total-cap
+# Discover every one-level Molecule scenario directory containing molecule.yml.
+MOLECULE_SCENARIOS := $(sort $(patsubst molecule/%/molecule.yml,%,$(wildcard molecule/*/molecule.yml)))
+# Exclude scenarios that do not contribute to aggregate phase coverage. Add
+# future standalone scenarios here instead of maintaining an inclusion list.
+MOLECULE_PHASE_EXCLUDED_SCENARIOS ?= common
+MOLECULE_PHASE_SCENARIOS ?= $(filter-out $(MOLECULE_PHASE_EXCLUDED_SCENARIOS),$(MOLECULE_SCENARIOS))
 MOLECULE_PHASE_COVERAGE_ARGS = $(foreach scenario,$(MOLECULE_PHASE_SCENARIOS),--coverage-file $(MOLECULE_ANSIBLE_HOME)/molecule/$(MOLECULE_PHASE_PLATFORM)-$(scenario)-task-coverage.jsonl)
 MOLECULE_SCENARIO ?= common
 MOLECULE_UBUNTU_2404_IMAGE ?= geerlingguy/docker-ubuntu2404-ansible@sha256:68af87df907605679a3fd572d0eb8b13330b160a3aa89fe9d89e31a4d8ef6ca0
@@ -34,6 +39,7 @@ MOLECULE_ROCKYLINUX_9_IMAGE ?= geerlingguy/docker-rockylinux9-ansible@sha256:967
 	molecule-phase-coverage-rockylinux9 \
 	molecule-phase-coverage-ubuntu2204 \
 	molecule-phase-coverage-ubuntu2404 \
+	molecule-phase-scenarios \
 	molecule-test-phases \
 	molecule-test-phases-platform \
 	molecule-test-phases-rockylinux9 \
@@ -80,6 +86,9 @@ molecule-phase-coverage-ubuntu2204: ## Verify phase and migration coverage for U
 
 molecule-phase-coverage-ubuntu2404: ## Verify phase and migration coverage for Ubuntu 24.04
 	@$(MAKE) --no-print-directory molecule-phase-coverage MOLECULE_PHASE_PLATFORM=ubuntu2404
+
+molecule-phase-scenarios: ## List discovered phase and migration Molecule scenarios
+	@$(foreach scenario,$(MOLECULE_PHASE_SCENARIOS),printf '%s\n' '$(scenario)';)
 
 molecule-test: molecule-test-ubuntu2404 ## Run Molecule tests on the default Ubuntu 24.04 platform
 

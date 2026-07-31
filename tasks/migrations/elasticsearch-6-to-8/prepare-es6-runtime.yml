@@ -129,6 +129,7 @@
   ansible.builtin.stat:
     path: "{{ _archivematica_upgrade_preserved_es_data_dir }}"
   register: "_archivematica_upgrade_preserved_es6_data"
+  when: _archivematica_upgrade_handoff_mode == 'in_place'
 
 - name: "Require preserved packaged Elasticsearch 6 data"
   ansible.builtin.assert:
@@ -138,6 +139,7 @@
       The preserved packaged Elasticsearch 6 data directory
       {{ _archivematica_upgrade_preserved_es_data_dir }} is missing. Run the
       cutover-before-install phase successfully before migration.
+  when: _archivematica_upgrade_handoff_mode == 'in_place'
 
 - name: "Copy preserved Elasticsearch 6 data into the temporary node"
   ansible.builtin.shell: |
@@ -157,6 +159,29 @@
     creates: "{{ _archivematica_upgrade_es6_dir }}/.archivematica-before-upgrade-data-copied"
   async: "{{ archivematica_upgrade_es_data_timeout | int }}"
   poll: 10
+  when: _archivematica_upgrade_handoff_mode == 'in_place'
+
+- name: "Extract portable Elasticsearch 6 data into the temporary node"
+  ansible.builtin.shell: |
+    set -o errexit -o nounset -o pipefail
+    rm -rf '{{ _archivematica_upgrade_es6_dir }}/data.tmp'
+    mkdir '{{ _archivematica_upgrade_es6_dir }}/data.tmp'
+    tar \
+      --extract \
+      --gzip \
+      --file {{ _archivematica_upgrade_es_data_archive | quote }} \
+      --directory '{{ _archivematica_upgrade_es6_dir }}/data.tmp'
+    rm -rf '{{ _archivematica_upgrade_es6_dir }}/data'
+    mv \
+      '{{ _archivematica_upgrade_es6_dir }}/data.tmp' \
+      '{{ _archivematica_upgrade_es6_dir }}/data'
+    touch '{{ _archivematica_upgrade_es6_dir }}/.archivematica-before-upgrade-data-copied'
+  args:
+    executable: "/bin/bash"
+    creates: "{{ _archivematica_upgrade_es6_dir }}/.archivematica-before-upgrade-data-copied"
+  async: "{{ archivematica_upgrade_es_data_timeout | int }}"
+  poll: 10
+  when: _archivematica_upgrade_handoff_mode == 'portable'
 
 - name: "Allow the migration user to write temporary Elasticsearch 6 runtime paths"
   ansible.builtin.file:

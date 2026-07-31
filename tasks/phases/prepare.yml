@@ -116,6 +116,9 @@
         state: "stopped"
       loop: "{{ _archivematica_upgrade_application_services }}"
 
+    - name: "Recheck the frozen source before creating backups"
+      ansible.builtin.include_tasks: "common/require-idle.yml"
+
     - name: "Run prepare hooks for active migrations"
       ansible.builtin.include_tasks: "common/run-migration-hooks.yml"
       vars:
@@ -160,7 +163,8 @@
           --create \
           --gzip \
           --file {{ (item.archive ~ '.tmp') | quote }} \
-          {{ item.path | quote }}
+          --directory {{ item.path | quote }} \
+          .
         mv {{ (item.archive ~ '.tmp') | quote }} {{ item.archive | quote }}
       args:
         executable: "/bin/bash"
@@ -349,6 +353,137 @@
 
 - name: "Load prepared Archivematica upgrade state"
   ansible.builtin.include_tasks: "common/load-state.yml"
+
+- name: "Find portable handoff artifacts"
+  ansible.builtin.find:
+    paths:
+      - "{{ _archivematica_upgrade_backup_dir }}"
+      - "{{ _archivematica_upgrade_state_dir }}"
+    file_type: "file"
+    hidden: true
+    recurse: true
+  register: "_archivematica_upgrade_portable_artifact_files"
+  when: _archivematica_upgrade_handoff_mode == 'portable'
+
+- name: "Inspect portable handoff artifacts"
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    checksum_algorithm: "sha256"
+  loop: "{{ _archivematica_upgrade_portable_artifact_files.files | default([]) }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: "_archivematica_upgrade_portable_artifact_states"
+  when: _archivematica_upgrade_handoff_mode == 'portable'
+
+- name: "Initialize portable handoff artifacts"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_portable_artifacts: {}
+  when: _archivematica_upgrade_handoff_mode == 'portable'
+
+- name: "Collect portable handoff artifacts"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_portable_artifacts: >-
+      {{
+        _archivematica_upgrade_portable_artifacts |
+        combine({
+          item.item.path[(_archivematica_upgrade_path | length) + 1:]: {
+            'sha256': item.stat.checksum,
+            'bytes': item.stat.size | int
+          }
+        })
+      }}
+  loop: "{{ _archivematica_upgrade_portable_artifact_states.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.path }}"
+  when: _archivematica_upgrade_handoff_mode == 'portable'
+
+- name: "Require portable handoff artifacts"
+  ansible.builtin.assert:
+    that:
+      - _archivematica_upgrade_portable_artifacts | length > 0
+      - >-
+        'backups/' ~ (archivematica_src_am_db_name ~ '.sql.gz')
+        in _archivematica_upgrade_portable_artifacts
+      - >-
+        'backups/' ~ (_archivematica_upgrade_processing_config_archive | basename)
+        in _archivematica_upgrade_portable_artifacts
+      - >-
+        'backups/' ~ _archivematica_upgrade_es_data_archive_artifact
+        in _archivematica_upgrade_portable_artifacts
+      - >-
+        'state/' ~ (_archivematica_upgrade_before_upgrade_aip_storage_stats_file | basename)
+        in _archivematica_upgrade_portable_artifacts
+      - >-
+        'state/' ~ (_archivematica_upgrade_before_upgrade_application_state_file | basename)
+        in _archivematica_upgrade_portable_artifacts
+    fail_msg: >-
+      Portable preparation did not produce every database, processing
+      configuration, Elasticsearch, and validation-state artifact required for
+      target import.
+  when: _archivematica_upgrade_handoff_mode == 'portable'
+
+- name: "Write portable handoff manifest"
+  ansible.builtin.copy:
+    content: >-
+      {{
+        {
+          'schema': 1,
+          'upgrade_id': archivematica_upgrade_id,
+          'upgrade_path': archivematica_upgrade_path,
+          'handoff_mode': _archivematica_upgrade_handoff_mode,
+          'source_host': archivematica_upgrade_portable_source_host,
+          'source': {
+            'archivematica_version':
+              _archivematica_upgrade_installed_am_version,
+            'storage_service_version':
+              _archivematica_upgrade_installed_ss_version
+          },
+          'target': {
+            'archivematica_version':
+              _archivematica_upgrade_requested_target_version,
+            'storage_service_version':
+              _archivematica_upgrade_requested_target_ss_version
+          },
+          'plan_digest': archivematica_upgrade_portable_plan_digest,
+          'filesystem_uuid':
+            _archivematica_upgrade_portable_filesystem_uuid,
+          'artifacts': _archivematica_upgrade_portable_artifacts
+        } |
+        to_nice_json
+      }}
+    dest: "{{ _archivematica_upgrade_portable_manifest_file }}"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+    force: false
+  when: _archivematica_upgrade_handoff_mode == 'portable'
+
+- name: "Inspect portable handoff manifest"
+  ansible.builtin.stat:
+    path: "{{ _archivematica_upgrade_portable_manifest_file }}"
+    checksum_algorithm: "sha256"
+  register: "_archivematica_upgrade_portable_manifest_state"
+  when: _archivematica_upgrade_handoff_mode == 'portable'
+
+- name: "Record completed portable source preparation"
+  ansible.builtin.copy:
+    content: "{{ _archivematica_upgrade_portable_manifest_state.stat.checksum }}\n"
+    dest: "{{ _archivematica_upgrade_portable_source_checkpoint }}"
+    owner: "root"
+    group: "root"
+    mode: "0640"
+    force: false
+  when: _archivematica_upgrade_handoff_mode == 'portable'
+
+- name: "Report the portable handoff manifest checksum"
+  ansible.builtin.debug:
+    msg:
+      manifest: "{{ _archivematica_upgrade_portable_manifest_file }}"
+      sha256: "{{ _archivematica_upgrade_portable_manifest_state.stat.checksum }}"
+      next: >-
+        Record this SHA-256 outside the source VM. Supply it as
+        archivematica_upgrade_portable_manifest_sha256 on the target.
+  when: _archivematica_upgrade_handoff_mode == 'portable'
 
 - name: "Record completed preparation"
   ansible.builtin.copy:

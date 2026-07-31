@@ -3,12 +3,14 @@
   ansible.builtin.stat:
     path: "{{ _archivematica_upgrade_es6_system_removed_checkpoint }}"
   register: "_archivematica_upgrade_es6_removed_checkpoint"
+  when: _archivematica_upgrade_handoff_mode == 'in_place'
 
 - name: "Fail when packaged Elasticsearch 6 removal is incomplete"
   ansible.builtin.assert:
     that:
       - _archivematica_upgrade_es6_removed_checkpoint.stat.exists
     fail_msg: "The packaged Elasticsearch 6 removal checkpoint is missing."
+  when: _archivematica_upgrade_handoff_mode == 'in_place'
 
 - name: "Wait for packaged Elasticsearch 8"
   ansible.builtin.uri:

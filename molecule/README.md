@@ -164,6 +164,7 @@ The available phase and migration scenarios are:
 | `elasticsearch-reindex-negative` | Remote reindex submission and polling failure branches. |
 | `elasticsearch-restore-validate-cleanup-negative` | Elasticsearch restore, validate, and cleanup failure branches. |
 | `elasticsearch-search-total-cap` | Regression coverage for Elasticsearch 8 capped `_search` hit totals. |
+| `portable-handoff` | Exact release guardrails, source manifest, verified database import, target cutover, archived Elasticsearch migration, validation, and cleanup for the manual server-migration handoff. |
 
 ## Platform-specific phase coverage files
 
@@ -316,7 +317,9 @@ For a new phase or migration branch:
 2. Add a scenario directory under `molecule/<scenario>` by copying an existing
    phase scenario wrapper.
 3. Set `phase_coverage_case` in the scenario `converge.yml`.
-4. Add the scenario name to `MOLECULE_PHASE_SCENARIOS` in the Makefile.
+4. Confirm `make molecule-phase-scenarios` discovers the scenario. Phase
+   scenarios are discovered from one-level `molecule/*/molecule.yml` files;
+   standalone scenarios belong in `MOLECULE_PHASE_EXCLUDED_SCENARIOS`.
 5. Update `molecule/phase-coverage.yml` only when the coverage scope or an
    intentional `failed/rescued` requirement changes.
 

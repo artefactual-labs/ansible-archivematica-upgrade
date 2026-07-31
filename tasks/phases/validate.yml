@@ -5,6 +5,21 @@
 - name: "Load prepared Archivematica upgrade state"
   ansible.builtin.include_tasks: "common/load-state.yml"
 
+- name: "Apply declared location path rewrites to the before-upgrade state"
+  ansible.builtin.set_fact:
+    _archivematica_upgrade_before_upgrade_application_state: >-
+      {{
+        _archivematica_upgrade_before_upgrade_application_state | to_json |
+        regex_replace(
+          '"' ~ (item.old | regex_replace('^/', '') | regex_escape),
+          '"' ~ (item.new | regex_replace('^/', ''))
+        ) |
+        from_json
+      }}
+  loop: "{{ archivematica_upgrade_location_path_rewrites }}"
+  loop_control:
+    label: "{{ item.old }}"
+
 - name: "Run validate-before-services hooks for active migrations"
   ansible.builtin.include_tasks: "common/run-migration-hooks.yml"
   vars:

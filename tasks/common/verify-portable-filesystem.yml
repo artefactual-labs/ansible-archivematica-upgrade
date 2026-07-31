@@ -1,0 +1,24 @@
+---
+- name: "Read the portable handoff filesystem UUID"
+  ansible.builtin.command:
+    argv:
+      - "findmnt"
+      - "--noheadings"
+      - "--output"
+      - "UUID"
+      - "--target"
+      - "{{ _archivematica_upgrade_root }}"
+  register: "_archivematica_upgrade_portable_filesystem"
+  changed_when: false
+
+- name: "Require the declared portable handoff filesystem"
+  ansible.builtin.assert:
+    that:
+      - >-
+        _archivematica_upgrade_portable_filesystem.stdout | trim ==
+        _archivematica_upgrade_portable_filesystem_uuid
+    fail_msg: >-
+      Portable root {{ _archivematica_upgrade_root }} is on filesystem
+      {{ _archivematica_upgrade_portable_filesystem.stdout | trim }}, not
+      declared filesystem {{ _archivematica_upgrade_portable_filesystem_uuid }}.
+      Stop before reading or writing migration artifacts on the wrong volume.
