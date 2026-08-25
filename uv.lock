@@ -120,17 +120,17 @@ resolution-markers = [
     "python_full_version < '3.11' and sys_platform != 'linux' and sys_platform != 'linux2'",
 ]
 dependencies = [
-    { name = "ansible-compat", marker = "sys_platform != 'linux' and sys_platform != 'linux2'" },
-    { name = "ansible-core", marker = "sys_platform != 'linux' and sys_platform != 'linux2'" },
-    { name = "black", marker = "sys_platform != 'linux' and sys_platform != 'linux2'" },
-    { name = "filelock", marker = "sys_platform != 'linux' and sys_platform != 'linux2'" },
-    { name = "jsonschema", marker = "sys_platform != 'linux' and sys_platform != 'linux2'" },
-    { name = "packaging", marker = "sys_platform != 'linux' and sys_platform != 'linux2'" },
-    { name = "pyyaml", marker = "sys_platform != 'linux' and sys_platform != 'linux2'" },
-    { name = "rich", marker = "sys_platform != 'linux' and sys_platform != 'linux2'" },
-    { name = "ruamel-yaml", version = "0.17.40", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux' and sys_platform != 'linux2'" },
-    { name = "wcmatch", marker = "sys_platform != 'linux' and sys_platform != 'linux2'" },
-    { name = "yamllint", marker = "sys_platform != 'linux' and sys_platform != 'linux2'" },
+    { name = "ansible-compat" },
+    { name = "ansible-core" },
+    { name = "black" },
+    { name = "filelock" },
+    { name = "jsonschema" },
+    { name = "packaging" },
+    { name = "pyyaml" },
+    { name = "rich" },
+    { name = "ruamel-yaml", version = "0.17.40", source = { registry = "https://pypi.org/simple" } },
+    { name = "wcmatch" },
+    { name = "yamllint" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/6a/83/08cd79e47452c0faf9325e19c9a1dd26fabfeaaa8733804165a066c19479/ansible-lint-6.8.7.tar.gz", hash = "sha256:de3de4e57cd54e17c1ec3a0b4a21d4811838e77d67b56cbe8f91107f2a434432", size = 315996, upload-time = "2022-11-21T00:23:18.312Z" }
 wheels = [
@@ -151,19 +151,19 @@ resolution-markers = [
     "python_full_version < '3.11' and sys_platform == 'linux2'",
 ]
 dependencies = [
-    { name = "ansible-compat", marker = "sys_platform == 'linux' or sys_platform == 'linux2'" },
-    { name = "ansible-core", marker = "sys_platform == 'linux' or sys_platform == 'linux2'" },
-    { name = "black", marker = "sys_platform == 'linux' or sys_platform == 'linux2'" },
-    { name = "filelock", marker = "sys_platform == 'linux' or sys_platform == 'linux2'" },
-    { name = "importlib-metadata", marker = "sys_platform == 'linux' or sys_platform == 'linux2'" },
-    { name = "jsonschema", marker = "sys_platform == 'linux' or sys_platform == 'linux2'" },
-    { name = "packaging", marker = "sys_platform == 'linux' or sys_platform == 'linux2'" },
-    { name = "pathspec", marker = "sys_platform == 'linux' or sys_platform == 'linux2'" },
-    { name = "pyyaml", marker = "sys_platform == 'linux' or sys_platform == 'linux2'" },
-    { name = "ruamel-yaml", version = "0.19.1", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'linux' or sys_platform == 'linux2'" },
-    { name = "subprocess-tee", marker = "sys_platform == 'linux' or sys_platform == 'linux2'" },
-    { name = "wcmatch", marker = "sys_platform == 'linux' or sys_platform == 'linux2'" },
-    { name = "yamllint", marker = "sys_platform == 'linux' or sys_platform == 'linux2'" },
+    { name = "ansible-compat" },
+    { name = "ansible-core" },
+    { name = "black" },
+    { name = "filelock" },
+    { name = "importlib-metadata" },
+    { name = "jsonschema" },
+    { name = "packaging" },
+    { name = "pathspec" },
+    { name = "pyyaml" },
+    { name = "ruamel-yaml", version = "0.19.1", source = { registry = "https://pypi.org/simple" } },
+    { name = "subprocess-tee" },
+    { name = "wcmatch" },
+    { name = "yamllint" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/7d/52/131fdc2305536a6482265dc2de01279cbb138716e86ead5c3d8357430695/ansible_lint-24.12.2.tar.gz", hash = "sha256:f636309c4e7f724fc1a544df529c4c2354f54cf35ede11d750366afb1158a464", size = 548046, upload-time = "2024-12-12T13:53:04.169Z" }
 wheels = [
@@ -603,7 +603,7 @@ name = "importlib-metadata"
 version = "9.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "zipp", marker = "sys_platform == 'linux' or sys_platform == 'linux2'" },
+    { name = "zipp" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/a9/01/15bb152d77b21318514a96f43af312635eb2500c96b55398d020c93d86ea/importlib_metadata-9.0.0.tar.gz", hash = "sha256:a4f57ab599e6a2e3016d7595cfd72eb4661a5106e787a95bcc90c7105b831efc", size = 56405, upload-time = "2026-03-20T06:42:56.999Z" }
 wheels = [
@@ -863,7 +863,7 @@ wheels = [
 
 [[package]]
 name = "pre-commit"
-version = "4.6.1"
+version = "4.6.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cfgv" },
@@ -872,9 +872,9 @@ dependencies = [
     { name = "pyyaml" },
     { name = "virtualenv" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/25/3a/ddb78f32a0814e66b18a099377a106a2dcdce92d86a034d69d65df9b256e/pre_commit-4.6.1.tar.gz", hash = "sha256:03e809865c7d178b9979d06c761fcbfe6808fdaded8581a745bb110e52050421", size = 198646, upload-time = "2026-07-21T20:56:58.225Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/74/89/1f3e8e1fc3e97de0fa963495832f581f025f29471602a309e48808244292/pre_commit-4.6.2.tar.gz", hash = "sha256:8f5d7bfb021ecdbcd9d49d89847082dd24172ccde534390081a679ad046e2441", size = 198670, upload-time = "2026-08-10T22:07:18.421Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fb/49/bc925106abcdac498074f2cbe6137e94e09f418dd2b7775df5b577dc0313/pre_commit-4.6.1-py2.py3-none-any.whl", hash = "sha256:0e3b2942510d1fb34eec167a3ec57331bf8442122f1153a9fb8b58f5c49b2717", size = 226186, upload-time = "2026-07-21T20:56:57.064Z" },
+    { url = "https://files.pythonhosted.org/packages/45/e2/bbb7129c9e7999a6b8ee9cca3b66486c25c423ab5a75f34071798b74ce94/pre_commit-4.6.2-py2.py3-none-any.whl", hash = "sha256:e2dde9a75d3bce11bd3831c26d134df00a2803c1d818be6a0383c3dcda25dc4e", size = 226202, upload-time = "2026-08-10T22:07:16.942Z" },
 ]
 
 [[package]]
@@ -1373,7 +1373,7 @@ resolution-markers = [
     "python_full_version < '3.11' and sys_platform != 'linux' and sys_platform != 'linux2'",
 ]
 dependencies = [
-    { name = "ruamel-yaml-clib", marker = "python_full_version < '3.13' and platform_python_implementation == 'CPython' and sys_platform != 'linux' and sys_platform != 'linux2'" },
+    { name = "ruamel-yaml-clib", marker = "python_full_version < '3.13' and platform_python_implementation == 'CPython'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/d1/d6/eb2833ccba5ea36f8f4de4bcfa0d1a91eb618f832d430b70e3086821f251/ruamel.yaml-0.17.40.tar.gz", hash = "sha256:6024b986f06765d482b5b07e086cc4b4cd05dd22ddcbc758fa23d54873cf313d", size = 137672, upload-time = "2023-10-20T12:53:56.073Z" }
 wheels = [
@@ -1431,7 +1431,7 @@ name = "selinux"
 version = "0.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "distro", marker = "sys_platform == 'linux' or sys_platform == 'linux2'" },
+    { name = "distro" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/25/07/51acd62e1e15e1172d46f7e32faf138725b147f8c08dbf2d512159d7a310/selinux-0.3.0.tar.gz", hash = "sha256:2a88b337ac46ad0f06f557b2806c3df62421972f766673dd8bf26732fb75a9ea", size = 13479, upload-time = "2022-12-24T16:42:13.163Z" }
 wheels = [
@@ -1503,11 +1503,11 @@ wheels = [
 
 [[package]]
 name = "types-pyyaml"
-version = "6.0.12.20260518"
+version = "6.0.12.20260815"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/b8/83/4a1afc3fbfcf5b8d46fc390cd95ed6b0dc9010a265f4e9f46314efffa37a/types_pyyaml-6.0.12.20260518.tar.gz", hash = "sha256:d917f83fb38462550338c1297faedd860b3ec83912b96b1e3d73255f7473e466", size = 17850, upload-time = "2026-05-18T06:01:58.675Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9f/72/b56089aeee6c496d969bac42376bedb6e3eeab4682e1018fa3137122f94b/types_pyyaml-6.0.12.20260815.tar.gz", hash = "sha256:28764110c9cf35846e733da32d8d734df7473c5dde9ef67c3b7332ec0e819858", size = 18545, upload-time = "2026-08-15T02:41:51.532Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/06/a2/c01db32be2ae7d6a1689972f3c492b149ee4e164b12fdfd9f64b50888215/types_pyyaml-6.0.12.20260518-py3-none-any.whl", hash = "sha256:d2150f75a231c9fe9c7463bd29487d93e60bac90400287351384bc2284eba7cd", size = 20312, upload-time = "2026-05-18T06:01:57.368Z" },
+    { url = "https://files.pythonhosted.org/packages/08/52/eefeba09be4ef2a1eb989eb92934561e8e502a6ee3c32654996e4be7e399/types_pyyaml-6.0.12.20260815-py3-none-any.whl", hash = "sha256:6f332212b7e191f3afd5016a713c510b6340593b7ebec573c7d5d20aa5386d3b", size = 21148, upload-time = "2026-08-15T02:41:50.555Z" },
 ]
 
 [[package]]
